@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from biomapper.exceptions import BioMapperError
 
@@ -95,9 +95,11 @@ class EntityTypeInfo(BaseModel):
     the server returns the old shape (which has no prefix data).
     """
 
+    model_config = ConfigDict(populate_by_name=True)
+
     type: str
     aliases: list[str] = Field(default_factory=list)
-    default_prefixes: list[str] = Field(default_factory=list, validation_alias="defaultPrefixes")
+    default_prefixes: list[str] = Field(default_factory=list, alias="defaultPrefixes")
 
     @model_validator(mode="before")
     @classmethod
