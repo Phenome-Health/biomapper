@@ -129,6 +129,82 @@ class TestListEntityTypes:
 
     @pytest.mark.asyncio()
     @respx.mock
+    async def test_new_array_shape_with_default_prefixes(self, client: BioMapperClient) -> None:
+        """New v2 response shape: array of EntityType objects with defaultPrefixes."""
+        respx.get(f"{BASE_URL}/entity-types").mock(
+            return_value=httpx.Response(
+                200,
+                json=[
+                    {
+                        "type": "biolink:SmallMolecule",
+                        "aliases": ["metabolite", "lipid"],
+                        "defaultPrefixes": ["CHEBI", "HMDB", "PUBCHEM.COMPOUND"],
+                    },
+                    {
+                        "type": "biolink:Protein",
+                        "aliases": ["protein"],
+                        "defaultPrefixes": ["PR", "UniProtKB"],
+                    },
+                ],
+            )
+        )
+        async with client:
+            result = await client.list_entity_types()
+
+        assert len(result) == 2
+        assert result[0].type == "biolink:SmallMolecule"
+        assert result[0].aliases == ["metabolite", "lipid"]
+        assert result[0].default_prefixes == ["CHEBI", "HMDB", "PUBCHEM.COMPOUND"]
+        assert result[1].type == "biolink:Protein"
+        assert result[1].default_prefixes == ["PR", "UniProtKB"]
+
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_new_shape_null_fields_coerced_to_empty(self, client: BioMapperClient) -> None:
+        """New shape with null aliases and defaultPrefixes → empty lists."""
+        respx.get(f"{BASE_URL}/entity-types").mock(
+            return_value=httpx.Response(
+                200,
+                json=[
+                    {
+                        "type": "biolink:NamedThing",
+                        "aliases": None,
+                        "defaultPrefixes": None,
+                    },
+                ],
+            )
+        )
+        async with client:
+            result = await client.list_entity_types()
+
+        assert len(result) == 1
+        assert result[0].type == "biolink:NamedThing"
+        assert result[0].aliases == []
+        assert result[0].default_prefixes == []
+
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_old_shape_backward_compat_has_empty_prefixes(self, client: BioMapperClient) -> None:
+        """Old dict shape still works; default_prefixes defaults to empty list."""
+        respx.get(f"{BASE_URL}/entity-types").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "entity_types": ["biolink:SmallMolecule"],
+                    "aliases": {"metabolite": "biolink:SmallMolecule"},
+                },
+            )
+        )
+        async with client:
+            result = await client.list_entity_types()
+
+        assert len(result) == 1
+        assert result[0].type == "biolink:SmallMolecule"
+        assert result[0].aliases == ["metabolite"]
+        assert result[0].default_prefixes == []
+
+    @pytest.mark.asyncio()
+    @respx.mock
     async def test_auth_error(self, client: BioMapperClient) -> None:
         respx.get(f"{BASE_URL}/entity-types").mock(return_value=httpx.Response(401))
         async with client:

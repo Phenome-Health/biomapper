@@ -162,6 +162,20 @@ class TestDiscoveryModels:
         info = EntityTypeInfo.model_validate({"type": "biolink:Protein"})
         assert info.type == "biolink:Protein"
         assert info.aliases == []
+        assert info.default_prefixes == []
+
+    def test_entity_type_info_with_default_prefixes(self) -> None:
+        info = EntityTypeInfo.model_validate(
+            {"type": "biolink:SmallMolecule", "defaultPrefixes": ["CHEBI", "HMDB"]}
+        )
+        assert info.default_prefixes == ["CHEBI", "HMDB"]
+
+    def test_entity_type_info_null_fields_coerced(self) -> None:
+        info = EntityTypeInfo.model_validate(
+            {"type": "biolink:NamedThing", "aliases": None, "defaultPrefixes": None}
+        )
+        assert info.aliases == []
+        assert info.default_prefixes == []
 
     def test_annotator_info_optional_description(self) -> None:
         info = AnnotatorInfo.model_validate({"slug": "x", "name": "X"})

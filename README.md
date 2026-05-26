@@ -126,9 +126,11 @@ for a in list_annotators():
 vocabs = list_vocabularies()
 print(f"{len(vocabs)} vocabularies supported")
 
-# Biolink entity types with their known aliases
+# Biolink entity types with aliases and default vocabulary prefixes
 for et in list_entity_types():
     print(f"{et.type}: {', '.join(et.aliases)}")
+    if et.default_prefixes:
+        print(f"  prefixes: {', '.join(et.default_prefixes)}")
 ```
 
 ### Async usage

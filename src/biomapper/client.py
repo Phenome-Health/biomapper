@@ -140,13 +140,16 @@ class BioMapperClient:
     async def list_entity_types(self) -> list[EntityTypeInfo]:
         """Return the Biolink entity types supported by the API.
 
-        The server returns a flat ``{alias: type}`` lookup; this method
-        inverts it into per-type :class:`EntityTypeInfo` objects with
-        sorted alias lists — the shape users actually want when enumerating.
+        Handles both response shapes:
+
+        - **New (v2):** JSON array of ``{type, aliases?, defaultPrefixes?}``
+          objects — each is validated directly into :class:`EntityTypeInfo`.
+        - **Old (v1):** ``{entity_types: [...], aliases: {...}}`` dict — the
+          alias map is inverted into per-type alias lists (backward compat).
 
         Returns:
-            List of :class:`EntityTypeInfo` in the order the server returned
-            ``entity_types``; each ``aliases`` list is sorted alphabetically.
+            List of :class:`EntityTypeInfo`. For the new shape, order matches
+            the server. For the old shape, order matches ``entity_types``.
 
         Raises:
             BioMapperAuthError: If the key is rejected.
@@ -160,6 +163,11 @@ class BioMapperClient:
         self._raise_for_status(response)
         payload = response.json()
 
+        # New shape: array of EntityType objects
+        if isinstance(payload, list):
+            return [EntityTypeInfo.model_validate(item) for item in payload]
+
+        # Old shape: {entity_types: [...], aliases: {...}} dict
         inverted: dict[str, list[str]] = defaultdict(list)
         for alias, type_name in payload.get("aliases", {}).items():
             inverted[type_name].append(alias)

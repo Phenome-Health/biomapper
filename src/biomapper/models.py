@@ -85,14 +85,38 @@ class BatchMappingResponse(BaseModel):
 
 
 class EntityTypeInfo(BaseModel):
-    """One Biolink entity type together with its known aliases.
+    """One Biolink entity type with aliases and default vocabulary prefixes.
 
-    The API returns entity types and a flat ``{alias: type}`` lookup; the
-    client inverts that to per-type alias lists for friendlier enumeration.
+    The API may return either:
+    - **New shape** (v2): an array of ``{type, aliases?, defaultPrefixes?}`` objects
+    - **Old shape** (v1): ``{entity_types: [...], aliases: {...}}`` dict
+
+    The client handles both transparently. ``default_prefixes`` is empty when
+    the server returns the old shape (which has no prefix data).
     """
 
     type: str
     aliases: list[str] = Field(default_factory=list)
+    default_prefixes: list[str] = Field(default_factory=list, validation_alias="defaultPrefixes")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_nulls(cls, data: Any) -> Any:
+        """Coerce ``null`` values to empty lists for list fields.
+
+        The server sends ``"aliases": null`` and ``"defaultPrefixes": null``
+        for entities without these values, but the model uses non-optional
+        ``list[str]`` fields with empty defaults.
+        """
+        if isinstance(data, dict):
+            if data.get("aliases") is None:
+                data["aliases"] = []
+            # Handle both wire name (defaultPrefixes) and Python name (default_prefixes)
+            if data.get("defaultPrefixes") is None:
+                data["defaultPrefixes"] = []
+            if data.get("default_prefixes") is None:
+                data["default_prefixes"] = []
+        return data
 
 
 class AnnotatorInfo(BaseModel):
