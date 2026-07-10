@@ -104,7 +104,7 @@ class EntityTypeInfo(BaseModel):
 
     @model_validator(mode="before")
     @classmethod
-    def _coerce_nulls(cls, data: Any) -> Any:
+    def _coerce_nulls(cls, data: Any) -> Any:  # noqa: ANN401
         """Coerce ``null`` values to empty lists for list fields.
 
         The server sends ``"aliases": null`` and ``"defaultPrefixes": null``
