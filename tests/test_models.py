@@ -49,6 +49,34 @@ class TestMappingResultFromApiResponse:
         assert result.equivalent_ids_for("CHEBI") == ["15971", "44637"]
         assert result.equivalent_ids_for("NONEXISTENT") == []
 
+    def test_chosen_kg_id_review_surfaced(self, sample_api_response: dict[str, Any]) -> None:
+        # The default sample carries no review flag.
+        default = MappingResult.from_api_response(sample_api_response, "L-Histidine")
+        assert default.chosen_kg_id_review is None
+
+        # A flagged small-molecule ChEBI conflict surfaces the review reason.
+        flagged = {
+            "result": {
+                "name": "citrate",
+                "curies": ["CHEBI:30769"],
+                "chosen_kg_id": "CHEBI:30769",
+                "chosen_kg_id_review": "divergent_refmet",
+            },
+            "metadata": {},
+        }
+        result = MappingResult.from_api_response(flagged, "citrate")
+        assert result.chosen_kg_id == "CHEBI:30769"
+        assert result.chosen_kg_id_review == "divergent_refmet"
+
+        # Batch-shaped entries surface it too.
+        raw = RawApiResult(
+            name="citrate",
+            chosen_kg_id="CHEBI:30769",
+            chosen_kg_id_review="divergent_refmet",
+        )
+        batch = MappingResult.from_batch_entry(raw, "citrate")
+        assert batch.chosen_kg_id_review == "divergent_refmet"
+
     def test_hmdb_hint_preserved(self, sample_api_response: dict[str, Any]) -> None:
         result = MappingResult.from_api_response(
             sample_api_response, "L-Histidine", hmdb_hint="HMDB00177"

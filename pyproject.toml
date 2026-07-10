@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "biomapper"
-version = "1.2.1"
+version = "1.3.0"
 description = "Python client for the BioMapper2 API — map biological entities to standardized knowledge graph identifiers"
 authors = ["Trent Leslie <trent.leslie@phenomehealth.org>"]
 license = "MIT"

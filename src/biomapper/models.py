@@ -53,6 +53,7 @@ class RawApiResult(BaseModel):
     name: str | None = None
     curies: list[str] = Field(default_factory=list)
     chosen_kg_id: str | None = None
+    chosen_kg_id_review: str | None = None
     kg_equivalent_ids: dict[str, list[str]] = Field(default_factory=dict)
     kg_ids: dict[str, list[str]] = Field(default_factory=dict)
     assigned_ids: dict[str, dict[str, dict[str, Any]]] = Field(default_factory=dict)
@@ -152,6 +153,9 @@ class MappingResult(BaseModel):
         resolved:         Whether at least one identifier was returned.
         primary_curie:    First CURIE in the response list.
         chosen_kg_id:     The resolver-selected knowledge graph ID.
+        chosen_kg_id_review: Review flag for source-weighted small-molecule ChEBI conflicts
+            (``"divergent_refmet"`` or ``"conflict_no_structure"``); ``None`` when no review
+            is warranted.
         confidence_score: Highest confidence score found across annotators.
         identifiers:      Vocabulary → list[id] mapping (e.g. ``{"CHEBI": ["15971"]}``).
         hmdb_hint:        HMDB hint that was passed in the request, if any.
@@ -163,6 +167,7 @@ class MappingResult(BaseModel):
     resolved: bool = False
     primary_curie: str | None = None
     chosen_kg_id: str | None = None
+    chosen_kg_id_review: str | None = None
     confidence_score: float | None = None
     identifiers: dict[str, list[str]] = Field(default_factory=dict)
     kg_equivalent_ids: dict[str, list[str]] = Field(default_factory=dict)
@@ -268,6 +273,7 @@ class MappingResult(BaseModel):
             base["primary_curie"] = r.curies[0]
 
         base["chosen_kg_id"] = r.chosen_kg_id
+        base["chosen_kg_id_review"] = r.chosen_kg_id_review
         base["kg_equivalent_ids"] = dict(r.kg_equivalent_ids)
 
         # Flatten assigned_ids → {vocab: [code, ...]} and extract best score
