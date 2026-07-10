@@ -184,7 +184,9 @@ class TestListEntityTypes:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_old_shape_backward_compat_has_empty_prefixes(self, client: BioMapperClient) -> None:
+    async def test_old_shape_backward_compat_has_empty_prefixes(
+        self, client: BioMapperClient
+    ) -> None:
         """Old dict shape still works; default_prefixes defaults to empty list."""
         respx.get(f"{BASE_URL}/entity-types").mock(
             return_value=httpx.Response(

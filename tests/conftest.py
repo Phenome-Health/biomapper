@@ -14,6 +14,7 @@ SAMPLE_API_RESPONSE: dict[str, Any] = {
         "name": "L-Histidine",
         "curies": ["RM:0129894", "CHEBI:15971"],
         "chosen_kg_id": "CHEBI:15971",
+        "chosen_kg_id_review": None,
         "kg_equivalent_ids": {
             "CHEBI": ["15971", "44637"],
             "HMDB": ["HMDB0000177"],

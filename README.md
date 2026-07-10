@@ -55,6 +55,7 @@ result = map_entity("L-Histidine")
 print(result.resolved)          # True
 print(result.primary_curie)     # RM:0129894
 print(result.chosen_kg_id)      # CHEBI:15971
+print(result.chosen_kg_id_review)  # None  (or 'divergent_refmet' when a ChEBI conflict is flagged for review)
 print(result.confidence_score)  # 2.489
 print(result.confidence_tier)   # high  (≥2.0)
 print(result.ids_for("CHEBI"))  # ['15971']
@@ -213,6 +214,7 @@ extract_hmdb_id(None)                                         # None
 | `resolved` | `bool` | Whether any identifier was returned |
 | `primary_curie` | `str \| None` | First CURIE in the response |
 | `chosen_kg_id` | `str \| None` | Resolver-selected knowledge graph ID |
+| `chosen_kg_id_review` | `str \| None` | Review flag for source-weighted small-molecule ChEBI conflicts: `"divergent_refmet"`, `"conflict_no_structure"`, or `None` |
 | `confidence_score` | `float \| None` | Highest score across annotators |
 | `confidence_tier` | `str` | `"high"` (≥2.0) / `"medium"` (1–2) / `"low"` (<1) / `"unknown"` |
 | `identifiers` | `dict[str, list[str]]` | Vocabulary → IDs, e.g. `{"CHEBI": ["15971"]}` |
