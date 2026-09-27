@@ -270,6 +270,17 @@ from biomapper import map_entities
 results = map_entities([{"name": "L-Histidine"}], progress=True)
 ```
 
+`notebooks/biomapper_tutorial.ipynb` is the worked end-to-end walkthrough of the harmonization
+protocol: pin the backend build from `/health`, resolve two cohort panels, link them by
+identifier-only CURIE-set intersection, and read one certified and one refused structural
+certificate. It runs against a keyless deployment, so no API key is needed, and its saved outputs
+name the exact KRAKEN build that produced them.
+
+Note that the keyless path currently requires `BioMapperClient(anonymous=True)` directly. The
+synchronous wrappers (`map_entity`, `map_entities`, `map_dataset_file_sync`, `list_annotators`,
+`list_vocabularies`, `list_entity_types`) take an `api_key` but expose no `anonymous` flag and no
+client-kwargs passthrough, so they cannot reach a deployment with authentication disabled.
+
 ### Preprocessing functions
 
 ```python
