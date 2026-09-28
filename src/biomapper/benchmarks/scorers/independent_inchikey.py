@@ -54,6 +54,11 @@ def pubchem_session() -> Any:  # noqa: ANN401 - a requests.Session
             kwargs["ssl_context"] = ssl.create_default_context()
             super().init_poolmanager(*args, **kwargs)
 
+        # A proxied route gets its own ProxyManager that never passes through init_poolmanager.
+        def proxy_manager_for(self, proxy: str, **proxy_kwargs: Any) -> Any:  # noqa: ANN401
+            proxy_kwargs.setdefault("ssl_context", ssl.create_default_context())
+            return super().proxy_manager_for(proxy, **proxy_kwargs)
+
     session = requests.Session()
     session.mount("https://", _StdlibTLSAdapter())
     return session

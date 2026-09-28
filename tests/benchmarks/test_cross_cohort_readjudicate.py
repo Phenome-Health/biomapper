@@ -504,3 +504,13 @@ def test_both_pubchem_callers_default_to_the_stdlib_tls_session():
         adapter = resolver._session.get_adapter("https://pubchem.ncbi.nlm.nih.gov/")  # noqa: SLF001
         context = adapter.poolmanager.connection_pool_kw.get("ssl_context")
         assert isinstance(context, ssl.SSLContext)
+
+
+def test_a_proxied_pubchem_route_also_gets_the_stdlib_tls_context():
+    import ssl
+
+    from biomapper.benchmarks.scorers.independent_inchikey import pubchem_session
+
+    adapter = pubchem_session().get_adapter("https://pubchem.ncbi.nlm.nih.gov/")
+    manager = adapter.proxy_manager_for("http://proxy.invalid:3128")
+    assert isinstance(manager.connection_pool_kw.get("ssl_context"), ssl.SSLContext)
