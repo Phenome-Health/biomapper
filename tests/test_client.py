@@ -1330,12 +1330,22 @@ class TestKeylessByDefault:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_batch_401_without_key_carries_the_message(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        # Batch mode never raises on a chunk failure; every record carries the error instead.
+    async def test_batch_401_without_key_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # An auth failure is systemic, so batch mode raises instead of returning error rows.
         monkeypatch.delenv("BIOMAPPER_API_KEY", raising=False)
         respx.post(f"{BASE_URL}/map/batch").mock(return_value=httpx.Response(401))
         async with BioMapperClient(timeout=5.0) as client:
+            with pytest.raises(BioMapperAuthError, match="requires an API key"):
+                await client.map_entities([{"name": "L-Histidine"}])
+
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_batch_5xx_is_still_a_per_record_error(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Transient chunk failures keep the per-record contract the benchmark retry relies on.
+        monkeypatch.delenv("BIOMAPPER_API_KEY", raising=False)
+        respx.post(f"{BASE_URL}/map/batch").mock(return_value=httpx.Response(503))
+        async with BioMapperClient(timeout=5.0) as client:
             results = await client.map_entities([{"name": "L-Histidine"}])
-        assert "requires an API key" in (results[0].error or "")
+        assert results[0].error and "503" in results[0].error

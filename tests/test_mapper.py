@@ -144,3 +144,20 @@ class TestKeylessSyncWrappers:
         assert result.query_name == "L-Histidine"
         assert route.called
         assert "x-api-key" not in route.calls[0].request.headers
+
+    @respx.mock
+    @pytest.mark.parametrize("call", ["map_entity", "map_entities"])
+    def test_401_with_no_key_raises_from_sync_wrapper(
+        self, call: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("BIOMAPPER_API_KEY", raising=False)
+        respx.post("https://biomapper.expertintheloop.io/api/v1/map/batch").mock(
+            return_value=httpx.Response(401)
+        )
+        from biomapper.exceptions import BioMapperAuthError
+
+        with pytest.raises(BioMapperAuthError, match="requires an API key"):
+            if call == "map_entity":
+                map_entity("L-Histidine")
+            else:
+                map_entities([{"name": "L-Histidine"}])

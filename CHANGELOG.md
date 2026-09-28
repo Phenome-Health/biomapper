@@ -102,6 +102,12 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   fails at the first request instead of at construction: 401/403 without a key raises
   `BioMapperAuthError("This deployment requires an API key ...")`, and 401/403 with a key raises
   `BioMapperAuthError("API key rejected ...")`.
+- **Batch auth failures now raise.** `map_entities` (async and sync, and so `map_entity`) used to
+  turn a 401/403 into an `error` on every record. An auth failure is systemic, so it now raises
+  `BioMapperAuthError` and aborts the batch; without this, a forgotten key against an
+  authenticated deployment would have come back as a batch of error rows rather than failing
+  loudly. Transient chunk failures (429, 5xx, timeouts, malformed responses) keep the per-record
+  contract, which the benchmark suite's retry and repair logic depends on.
 
 ### Documentation
 

@@ -381,10 +381,16 @@ class BioMapperClient:
         Returns:
             List of :class:`~biomapper.models.MappingResult`, one per input record,
             in input order. Records that fail (either per-record errors in a
-            successful response or every record in a chunk-level HTTP failure)
-            return a result with ``error`` set rather than raising.
+            successful response or every record in a transient chunk-level
+            failure: 429, 5xx, timeout, malformed response) return a result with
+            ``error`` set rather than raising.
 
         Raises:
+            BioMapperAuthError: On HTTP 401/403. An auth failure is systemic, not
+                per-entity: every later chunk would fail the same way, so it aborts
+                the batch instead of turning every record into an error row. This is
+                what keeps a missing key against an authenticated deployment loud
+                now that the client is keyless by default.
             asyncio.CancelledError: Propagated immediately so callers can cancel
                 mid-batch. All other exceptions are caught and surfaced as
                 per-record errors.
@@ -474,7 +480,9 @@ class BioMapperClient:
                                 hmdb_hint=self._hmdb_hint(req.identifiers),
                             )
                         )
-                except asyncio.CancelledError:
+                except (asyncio.CancelledError, BioMapperAuthError):
+                    # Auth failures are systemic (every chunk would fail alike), so they
+                    # abort rather than becoming per-record errors.
                     raise
                 except Exception as exc:  # noqa: BLE001 — broad catch preserves "one bad chunk doesn't abort the batch"
                     for req in chunk:

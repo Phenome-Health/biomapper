@@ -433,16 +433,23 @@ from biomapper import (
 
 try:
     result = map_entity("Glucose")
-except BioMapperRateLimitError as e:
-    print(f"Throttled. Retry after: {e.retry_after}s")
 except BioMapperAuthError as e:
-    # Only for a deployment that requires a key; the message says whether one was missing
-    # or rejected.
+    # Only for a deployment that requires a key; the message says whether one was
+    # missing or rejected.
     print(e)
+
+if result.error:
+    print(f"mapping failed: {result.error}")
 ```
 
-In batch mode (`map_entities`), per-record errors are caught and returned as
-`MappingResult(error=...)` rather than aborting the batch.
+An authentication failure (401/403) raises `BioMapperAuthError` from every entry point, sync or
+async, because it is systemic: every later request would fail the same way. The synchronous
+`map_entity` and `map_entities` go through the batch endpoint, where **transient** failures (429,
+5xx, timeouts, a malformed response) and per-entity problems do not raise: each affected record
+comes back as `MappingResult(error=...)` rather than aborting the batch. Check `.error` on every
+result. The single-entity call on the async client, `await client.map_entity(...)`, raises the
+typed exceptions (`BioMapperRateLimitError`, `BioMapperServerError`, `BioMapperTimeoutError`)
+directly.
 
 Dataset streaming (`map_dataset_file_sync`) uses a two-tier contract:
 
