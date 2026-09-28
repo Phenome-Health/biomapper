@@ -49,7 +49,7 @@ from biomapper.benchmarks.config import (
     DatasetConfig,
 )
 from biomapper.benchmarks.oracle import ApiStructureOracle, NodeNameResolver
-from biomapper.benchmarks.provenance import RunProvenance
+from biomapper.benchmarks.provenance import UNKNOWN, RunProvenance
 from biomapper.benchmarks.runner import VocabRun, run_all, run_provided_id, run_vocab
 from biomapper.benchmarks.scorers.curie_scorer import score_curie
 from biomapper.benchmarks.scorers.structure_oracle_scorer import (
@@ -446,13 +446,17 @@ def _resume_cache(
     """An entity cache pinned to this run's build, or ``None`` when the build is unknown.
 
     Unpinned provenance records ``unknown`` for the KG commit, and two unknowns compare equal, so a
-    cache keyed on them could resume a run across two different builds without noticing. Running
+    cache keyed on them could resume a run across two different builds without noticing. The KG
+    commit is checked on its own too: ``pinned`` only requires the service and KG versions, and a
+    build that reports a version but no commit is exactly that case. Running
     without a cache is slower; mixing builds is wrong. Take the slower path.
     """
-    if not provenance.pinned:
+    if not provenance.pinned or provenance.kg_build.git_commit in (UNKNOWN, "", None):
         logger.warning(
-            "provenance is unpinned (%s); running %s WITHOUT a resume cache, because a cache "
-            "cannot verify which build its answers came from.",
+            "KG build identity is incomplete (pinned=%s, kg_git_commit=%s, %s); running %s WITHOUT "
+            "a resume cache, because a cache cannot verify which build its answers came from.",
+            provenance.pinned,
+            provenance.kg_build.git_commit,
             provenance.health_error,
             directory,
         )

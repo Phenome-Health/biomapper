@@ -64,17 +64,26 @@ class CachePinMismatch(RuntimeError):
     """A resume was attempted against a cache written under a different backend or request."""
 
 
-def cache_key(name: str, vocab: str | list[str] | None, identifiers: dict[str, str]) -> str:
-    """The cache key: entity name + target vocab.
+def cache_key(
+    name: str,
+    vocab: str | list[str] | None,
+    identifiers: dict[str, str],
+    options: dict[str, Any] | None = None,
+) -> str:
+    """The cache key: entity name + target vocab, plus anything else that changes the answer.
 
     Provided identifiers are folded in when present, because the same name with a different
-    provided id is a different request. Name-only arms (MetaboliteAnnotator) send none, so for them
-    the key is exactly name + vocab.
+    provided id is a different request. So are request options (entity type, annotation mode,
+    annotators, candidate limit, the prefer_* flags) whenever set: a cache directory reused with
+    different options must miss rather than serve answers to a different question.
     """
     vocab_part = ",".join(vocab) if isinstance(vocab, list) else (vocab or "")
     key: dict[str, Any] = {"name": name, "vocab": vocab_part}
     if identifiers:
         key["identifiers"] = dict(sorted(identifiers.items()))
+    set_options = {k: v for k, v in (options or {}).items() if v is not None}
+    if set_options:
+        key["options"] = set_options
     return json.dumps(key, sort_keys=True, ensure_ascii=False)
 
 
@@ -158,15 +167,28 @@ class EntityCache:
         return len(fresh)
 
     def record_progress(
-        self, vocab: str | list[str] | None, *, batches_done: int, n_batches: int, total: int
+        self,
+        vocab: str | list[str] | None,
+        *,
+        batches_attempted: int,
+        n_batches: int,
+        total: int,
+        entities_cached: int,
     ) -> None:
-        """Update the per-vocab progress summary atomically (write temp, then rename)."""
+        """Update the per-vocab progress summary atomically (write temp, then rename).
+
+        ``complete`` means every entity of the pass is answered in the cache, not merely that every
+        batch was attempted: error rows are deliberately left uncached and a resume re-requests
+        them, so a pass with errors is not finished.
+        """
         label = ",".join(vocab) if isinstance(vocab, list) else (vocab or "")
         self._progress[label] = {
-            "batches_done": batches_done,
+            "batches_attempted": batches_attempted,
             "n_batches": n_batches,
             "entities_total": total,
-            "complete": batches_done >= n_batches,
+            "entities_cached": entities_cached,
+            "entities_outstanding": total - entities_cached,
+            "complete": entities_cached >= total,
             "updated_utc": _now(),
         }
         self._progress["_cache_entries"] = len(self._entries)
@@ -185,27 +207,40 @@ class EntityCache:
             os.fsync(fh.fileno())
 
     def _load(self) -> None:
-        lines = self.path.read_text(encoding="utf-8").splitlines()
-        for number, line in enumerate(lines, start=1):
-            if not line.strip():
+        """Read the cache as BYTES, so a kill that splits a multi-byte UTF-8 character is torn.
+
+        Decoding the whole file as text first would raise ``UnicodeDecodeError`` on such a tail
+        before the torn-line handling ran, and a non-ASCII metabolite name would then make the
+        mode unresumable without hand repair.
+        """
+        data = self.path.read_bytes()
+        lines = data.split(b"\n")
+        # A completed write ends in a newline, so split() leaves a final empty segment. Anything
+        # else in that position is the torn tail of a write that was killed.
+        if lines and lines[-1] == b"":
+            lines.pop()
+        seen_pin = False
+        for number, raw in enumerate(lines, start=1):
+            if not raw.strip():
                 continue
             try:
-                record = json.loads(line)
-            except json.JSONDecodeError:
+                record = json.loads(raw.decode("utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError):
                 if number == len(lines):
                     logger.warning(
-                        "%s: skipping a torn final line (a kill mid-write); %d earlier line(s) "
+                        "%s: dropping a torn final line (a kill mid-write); %d earlier line(s) "
                         "are intact.",
                         self.path,
                         number - 1,
                     )
-                    self._truncate_torn_tail(line)
+                    self._truncate_to(len(data) - len(raw))
                     continue
                 raise ValueError(
                     f"{self.path}: line {number} is not valid JSON and is not the final line, so "
                     f"the cache is corrupt rather than torn. Refusing to resume from it."
                 ) from None
             if record.get("type") == "pin":
+                seen_pin = True
                 stored = record.get("pin") or {}
                 if stored != self.pin:
                     diff = {
@@ -219,19 +254,25 @@ class EntityCache:
                         f"or delete this cache deliberately."
                     )
             elif record.get("type") == "batch":
+                if not seen_pin:
+                    raise CachePinMismatch(
+                        f"{self.path}: cached answers precede any build pin, so the build they "
+                        f"came from cannot be verified. Refusing to resume from it."
+                    )
                 for entry in record.get("entries", []):
                     self._entries[entry["key"]] = MappingResult.model_validate(entry["result"])
+        if not seen_pin:
+            # Only reachable when the pin line itself was the torn tail and nothing followed it:
+            # the cache holds no answers, so re-pinning it to this run is safe.
+            self._append({"type": "pin", "pin": self.pin, "created_utc": _now()})
         self.loaded_from_disk = len(self._entries)
 
-    def _truncate_torn_tail(self, torn: str) -> None:
-        """Drop the torn line so the next append starts on a clean line boundary."""
-        data = self.path.read_bytes()
-        cut = data.rfind(torn.encode("utf-8"))
-        if cut >= 0:
-            with self.path.open("r+b") as fh:
-                fh.truncate(cut)
-                fh.flush()
-                os.fsync(fh.fileno())
+    def _truncate_to(self, size: int) -> None:
+        """Drop the torn tail so the next append starts on a clean line boundary."""
+        with self.path.open("r+b") as fh:
+            fh.truncate(size)
+            fh.flush()
+            os.fsync(fh.fileno())
 
 
 def _now() -> str:

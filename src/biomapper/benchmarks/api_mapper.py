@@ -356,7 +356,15 @@ class ApiMapper:
         # Positional slots, so cache hits and fresh answers reassemble in input order. The gold is
         # joined BY POSITION downstream, so order is load-bearing here.
         results: list[MappingResult | None] = [None] * len(records)
-        keys = [cache_key(r["name"], vocab, r["identifiers"]) for r in records]
+        options = {
+            "entity_type": entity_type,
+            "annotation_mode": annotation_mode,
+            "annotators": annotators,
+            "candidate_limit": candidate_limit,
+            "prefer_canonical": prefer_canonical,
+            "prefer_human": prefer_human,
+        }
+        keys = [cache_key(r["name"], vocab, r["identifiers"], options) for r in records]
         pending: list[int] = []
         for index, key in enumerate(keys):
             hit = self.cache.get(key) if self.cache is not None else None
@@ -400,12 +408,19 @@ class ApiMapper:
                         )
                         self.cache.record_progress(
                             vocab,
-                            batches_done=batch_index + 1,
+                            batches_attempted=batch_index + 1,
                             n_batches=n_batches,
                             total=len(records),
+                            entities_cached=self._cached_count(keys),
                         )
         elif self.cache is not None:
-            self.cache.record_progress(vocab, batches_done=0, n_batches=0, total=len(records))
+            self.cache.record_progress(
+                vocab,
+                batches_attempted=0,
+                n_batches=0,
+                total=len(records),
+                entities_cached=self._cached_count(keys),
+            )
         self.counters.seconds += time.monotonic() - started
         self.counters.entities += len(pending)
         if any(r is None for r in results):  # pragma: no cover - invariant guard
@@ -414,6 +429,10 @@ class ApiMapper:
                 "misaligned predictions."
             )
         return [r for r in results if r is not None]
+
+    def _cached_count(self, keys: list[str]) -> int:
+        cache = self.cache
+        return sum(1 for key in keys if cache is not None and cache.get(key) is not None)
 
     async def _map_chunk(
         self,
