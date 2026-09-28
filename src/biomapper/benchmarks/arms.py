@@ -364,6 +364,9 @@ def run_hgnc(
     # each namespace's own run, because node selection is steered by the target vocab.
     result = score_curie(mapped_df, HGNC, vocab=primary)
     result["rollup_source_vocab_run"] = primary
+    # per_row is row-level evidence for the primary run only; the per-namespace figures for the
+    # other namespaces are verified against their own runs' TSVs (source_tsv in each entry).
+    result["per_row_source_vocab_run"] = primary
     result.update(_score_hgnc_per_target_run(runs))
     if not any(
         (entry.get("scored_denominator") or 0) > 0

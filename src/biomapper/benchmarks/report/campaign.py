@@ -30,8 +30,8 @@ CAMPAIGN_FRAMING = (
     "Deferred follow-on to the Hajjar vertical slice. Metabolite arm (NECS) is scored by the "
     "independent InChIKey structure oracle (strict + charge-normalized); the gene/protein arm "
     "(HGNC / UniProt idmapping / NCBI gene2ensembl) is scored by CURIE equality against each "
-    "backbone's authoritative held-out cross-references. ONE accuracy number per dataset (no "
-    "per-vocab axis). No competitor comparison exists for these sets, so none is drawn."
+    "backbone's authoritative held-out cross-references, reported per target namespace (the "
+    "any-namespace roll-up is not quotable). No competitor comparison exists for these sets, so none is drawn."
 )
 
 
@@ -154,6 +154,21 @@ def _metabolite_row(entry: dict[str, Any]) -> str:
 
 
 def _curie_row(entry: dict[str, Any]) -> str:
+    """Table row(s) for a gene/protein entry: one per target namespace when the result has them.
+
+    The any-namespace ``comparable_core`` is non-quotable, so it is only printed for a result that
+    predates per-namespace scoring. Precision/recall/F1 are derived from that roll-up, so they are
+    not repeated on the per-namespace rows.
+    """
+    per_ns = entry["result"].get("per_namespace_accuracy")
+    if isinstance(per_ns, dict) and per_ns:
+        cov = entry["result"]["coverage"]
+        return "\n".join(
+            f"| {entry['key']} ({ns}) | {entry.get('arm', 'gene/protein')} | "
+            f"{_pct(e.get('top1_accuracy'))} | {e.get('scored_denominator')} | "
+            f"{cov['n_predicted']}/{cov['total']} | n/a | n/a | n/a |"
+            for ns, e in per_ns.items()
+        )
     core = entry["result"]["comparable_core"]
     stats = entry["result"].get("curie_stats", {})
     cov = entry["result"]["coverage"]
@@ -236,7 +251,7 @@ def assemble_campaign_report(
             lines.append("")
 
     if curie_entries:
-        lines.append("## Gene/protein arm — CURIE-equality accuracy (one number per dataset)")
+        lines.append("## Gene/protein arm — CURIE-equality accuracy (per target namespace)")
         lines.append("")
         lines.append(
             "| Dataset | Arm | Top-1 accuracy | Scored n | Coverage | Precision | Recall | F1 |"

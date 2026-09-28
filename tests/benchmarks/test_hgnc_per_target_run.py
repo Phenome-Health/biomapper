@@ -145,6 +145,7 @@ def test_run_hgnc_reports_per_namespace_figures_from_each_run(tmp_path: Path, mo
     assert _acc(result, "UniProtKB") == (1, 1)
     assert result["per_namespace_scoring"] == "own_target_run"
     assert result["rollup_source_vocab_run"] == "ENSEMBL"
+    assert result["per_row_source_vocab_run"] == "ENSEMBL"
     for vocab, path in paths.items():
         entry = result["per_namespace_accuracy"][vocab]
         assert entry["source_tsv"] == str(path)
@@ -155,3 +156,18 @@ def test_run_hgnc_reports_per_namespace_figures_from_each_run(tmp_path: Path, mo
     )
     written = json.loads((tmp_path / "hgnc" / "ENSEMBL_results.json").read_text())
     assert written["per_namespace"]["NCBIGene"] == {"correct": 3, "scored": 3}
+
+
+def test_campaign_report_prints_per_namespace_rows_not_the_rollup():
+    """The report must show each namespace's own-run figure, never the non-quotable roll-up."""
+    from biomapper.benchmarks.report.campaign import _curie_row
+
+    result = score_curie_per_target_run({v: _mapped(v) for v in HGNC.target_vocabs}, HGNC)
+    result["coverage"] = {"n_predicted": 3, "total": 3}
+    result["comparable_core"] = {"top1_accuracy": 1.0, "scored_denominator": 3}
+    lines = _curie_row({"key": HGNC.key, "arm": "gene", "result": result}).split("\n")
+    assert lines == [
+        f"| {HGNC.key} (ENSEMBL) | gene | 100.0% | 2 | 3/3 | n/a | n/a | n/a |",
+        f"| {HGNC.key} (NCBIGene) | gene | 100.0% | 3 | 3/3 | n/a | n/a | n/a |",
+        f"| {HGNC.key} (UniProtKB) | gene | 100.0% | 1 | 3/3 | n/a | n/a | n/a |",
+    ]
