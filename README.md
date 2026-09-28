@@ -437,9 +437,9 @@ except BioMapperAuthError as e:
     # Only for a deployment that requires a key; the message says whether one was
     # missing or rejected.
     print(e)
-
-if result.error:
-    print(f"mapping failed: {result.error}")
+else:
+    if result.error:
+        print(f"mapping failed: {result.error}")
 ```
 
 An authentication failure (401/403) raises `BioMapperAuthError` from every entry point, sync or
