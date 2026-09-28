@@ -10,6 +10,10 @@ configured is open, and the suite runs against it unauthenticated without needin
 There is no ``--no-save``. The expensive part of a run is live API traffic, and a flag that
 discards it is not an acceptable failure mode; ``--out`` overrides *where* results land, never
 *whether* they do.
+
+For the same reason there is no silent subset. ``all --only`` / ``all --skip`` must account for
+every suite arm left out: each one is written into the manifest as ``status="skipped"`` with the
+operator's reason, and the command refuses to start if any omitted arm has none.
 """
 
 from __future__ import annotations
@@ -20,10 +24,11 @@ import logging
 import os
 import sys
 from pathlib import Path
+from typing import Any
 
 from biomapper.benchmarks.config import SUITE_DATASETS, SUITE_SKIPPED
 from biomapper.benchmarks.provenance import DEFAULT_KESTREL_URL
-from biomapper.benchmarks.suite import ENDPOINTS, run_suite
+from biomapper.benchmarks.suite import ENDPOINTS, resolve_omissions, run_suite
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -67,7 +72,30 @@ def build_parser() -> argparse.ArgumentParser:
         nargs="+",
         default=None,
         choices=SUITE_DATASETS,
-        help="Restrict to these arms (still writes one suite manifest).",
+        help=(
+            "Restrict to these arms (still writes one suite manifest). Every suite arm left out "
+            "needs a reason via --skip or --exclusions, or the command refuses to run."
+        ),
+    )
+    all_parser.add_argument(
+        "--skip",
+        action="append",
+        default=[],
+        metavar="ARM=REASON",
+        help=(
+            "Leave ARM out of this run and record it in the manifest as skipped with REASON. "
+            "Repeatable. Without --only, the run covers every arm not skipped."
+        ),
+    )
+    all_parser.add_argument(
+        "--exclusions",
+        default=None,
+        metavar="FILE",
+        help=(
+            'JSON list of {"arm": ..., "reason": ..., ...} records (the excluded_arms.json '
+            "shape). Each arm is skipped with its reason and the rest of the record is embedded "
+            "in the manifest entry as evidence."
+        ),
     )
 
     arm_parser = sub.add_parser("arm", help="Run a single arm.")
@@ -76,6 +104,53 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("list", help="List the arms and the deliberate skips, then exit.")
 
     return parser
+
+
+def _parse_skip(value: str) -> tuple[str, str]:
+    arm, sep, reason = value.partition("=")
+    if not sep or not arm.strip() or not reason.strip():
+        raise ValueError(f"--skip expects ARM=REASON with a non-empty reason, got {value!r}")
+    return arm.strip(), reason.strip()
+
+
+def _load_exclusions(path: str) -> dict[str, dict[str, Any]]:
+    records = json.loads(Path(path).read_text())
+    if isinstance(records, dict):
+        records = [records]
+    out: dict[str, dict[str, Any]] = {}
+    for record in records:
+        arm = record.get("arm") if isinstance(record, dict) else None
+        if not isinstance(arm, str) or not arm:
+            raise ValueError(f"{path}: every exclusion record needs an 'arm', got {record!r}")
+        if arm in out:
+            raise ValueError(f"{path}: arm {arm!r} is listed more than once")
+        out[arm] = record
+    return out
+
+
+def _selection(
+    args: argparse.Namespace,
+) -> tuple[list[str], dict[str, str | dict[str, Any]]]:
+    """The arms to run and the operator's reason for every suite arm left out.
+
+    ``arm NAME`` is an explicit single-arm invocation, so the reason for the other arms is the
+    invocation itself and is recorded as such. ``all`` takes reasons only from the operator.
+    """
+    if args.command == "arm":
+        reason = f"single-arm invocation (`arm {args.name}`); not part of this run"
+        return [args.name], {k: reason for k in SUITE_DATASETS if k != args.name}
+
+    omitted: dict[str, str | dict[str, Any]] = {}
+    if args.exclusions:
+        omitted.update(_load_exclusions(args.exclusions))
+    for value in args.skip:
+        arm, reason = _parse_skip(value)
+        if arm in omitted:
+            raise ValueError(f"arm {arm!r} is given a skip reason more than once")
+        omitted[arm] = reason
+    if args.only is not None:
+        return list(args.only), omitted
+    return [k for k in SUITE_DATASETS if k not in omitted], omitted
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -94,7 +169,12 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  {key}: {reason}")
         return 0
 
-    datasets = [args.name] if args.command == "arm" else args.only
+    try:
+        datasets, omitted = _selection(args)
+        # Validate up front so a refusal is an argparse error (exit 2) before any network call.
+        resolve_omissions(datasets, omitted)
+    except (ValueError, OSError) as exc:
+        build_parser().error(str(exc))
 
     # Read from the environment only. See the module docstring on why not from argv.
     api_key = os.getenv("BIOMAPPER_API_KEY")
@@ -102,6 +182,7 @@ def main(argv: list[str] | None = None) -> int:
     outcome = run_suite(
         out_dir=Path(args.out) if args.out else None,
         datasets=datasets,
+        omitted=omitted,
         endpoint=args.endpoint,
         api_key=api_key,
         kestrel_url=args.kestrel_url,
