@@ -345,18 +345,22 @@ def score_curie_per_target_run(
         frame = mapped_by_vocab[namespace]
         prefix = _namespace_prefix(namespace)
         other_columns = [c for ns, c in config.gold_curie_columns if ns != namespace]
-        scored = correct = n_predicted = 0
+        scored = correct = n_covered = 0
         no_gold = forced = checkable = wrong_gene = 0
         for _, row in frame.iterrows():
             preds = predicted_curies(row)
-            n_predicted += bool(preds)
+            # One predicate for coverage and forced hits: the run returned an id IN the target
+            # namespace (same prefix normalization as the gold). An HGNC- or other-namespace-only
+            # answer does not cover the target.
+            has_target_id = any(p.split(":", 1)[0] == prefix for p in preds)
+            n_covered += has_target_id
             ns_gold = _split_curies(row.get(column))
             if ns_gold:
                 scored += 1
                 correct += bool(preds & ns_gold)
                 continue
             no_gold += 1
-            if not any(p.split(":", 1)[0] == prefix for p in preds):
+            if not has_target_id:
                 continue
             forced += 1
             other_gold: set[str] = set()
@@ -371,11 +375,15 @@ def score_curie_per_target_run(
             "correct": correct,
             "scored_denominator": scored,
             "n_rows": len(frame),
-            # This run's own coverage, so it is never read off another namespace's run.
+            # This run's own TARGET-namespace coverage: rows where it returned >=1 id in this
+            # namespace. It includes the forced hits (rows with no target gold that still got a
+            # target id), so covered_with_target_gold = n_predicted - forced hits.
             "coverage": {
-                "n_predicted": n_predicted,
+                "definition": "rows with >=1 predicted id in the target namespace, own run",
+                "n_predicted": n_covered,
                 "total": len(frame),
-                "fraction": (n_predicted / len(frame)) if len(frame) else 0.0,
+                "fraction": (n_covered / len(frame)) if len(frame) else 0.0,
+                "of_which_forced_hits": forced,
             },
             "source_vocab_run": namespace,
             **sources.get(namespace, {}),

@@ -183,9 +183,38 @@ def test_coverage_is_read_from_each_namespace_s_own_run():
     result = score_curie_per_target_run(frames, HGNC)
     per_ns = result["per_namespace_accuracy"]
     assert per_ns["ENSEMBL"]["coverage"]["n_predicted"] == 3
-    assert per_ns["UniProtKB"]["coverage"] == {"n_predicted": 2, "total": 3, "fraction": 2 / 3}
+    uni_cov = per_ns["UniProtKB"]["coverage"]
+    assert (uni_cov["n_predicted"], uni_cov["total"]) == (2, 3)
     # The Ensembl run's coverage sits at the top level; the report must not borrow it.
     result["coverage"] = {"n_predicted": 3, "total": 3}
     lines = _curie_row({"key": HGNC.key, "arm": "gene", "result": result}).split("\n")
     assert lines[0].endswith("| 3/3 | n/a | n/a | n/a |")
     assert lines[2] == f"| {HGNC.key} (UniProtKB) | gene | 100.0% | 1 | 2/3 | n/a | n/a | n/a |"
+
+
+def test_coverage_counts_only_ids_in_the_target_namespace():
+    """A row that returned only off-namespace ids (here HGNC) does not cover NCBIGene.
+
+    Counting any prediction would report 3/3; the run produced an NCBIGene id on 2 rows.
+    """
+    frames = {v: _mapped(v) for v in HGNC.target_vocabs}
+    ncbi = frames["NCBIGene"]
+    mask = ncbi[HGNC.name_column] == "TRX-ABC1-1"
+    ncbi.loc[mask, "chosen_kg_id"] = "HGNC:3"
+    ncbi.loc[mask, "kg_equivalent_ids"] = json.dumps({"HGNC": ["3"]})
+    result = score_curie_per_target_run(frames, HGNC)
+    cov = result["per_namespace_accuracy"]["NCBIGene"]["coverage"]
+    assert (cov["n_predicted"], cov["total"]) == (2, 3)
+    assert _acc(result, "NCBIGene") == (2, 3)
+
+
+def test_forced_hits_are_the_covered_rows_without_target_gold():
+    """Coverage includes forced hits; the two must reconcile exactly, not be read twice."""
+    result = score_curie_per_target_run({v: _mapped(v) for v in HGNC.target_vocabs}, HGNC)
+    forced = result["forced_hit_diagnostic"]["per_namespace"]
+    for ns, entry in result["per_namespace_accuracy"].items():
+        cov = entry["coverage"]
+        assert cov["of_which_forced_hits"] == forced[ns]["returned_target_id_anyway"]
+        assert cov["n_predicted"] - cov["of_which_forced_hits"] <= entry["scored_denominator"]
+    uni = result["per_namespace_accuracy"]["UniProtKB"]["coverage"]
+    assert (uni["n_predicted"], uni["of_which_forced_hits"]) == (3, 2)
