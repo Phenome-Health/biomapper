@@ -5,7 +5,9 @@ Ported from ``run.run_suite``. Three properties carried over deliberately:
 * **One bad arm never aborts the suite.** A failing arm is recorded ``status="failed"`` and the
   run continues, so a suite always produces a complete account of what passed and what broke.
 * **Skips are recorded, never omitted.** A deliberate exclusion and an arm that fell out of the
-  registry by accident look identical if skips are simply dropped.
+  registry by accident look identical if skips are simply dropped. That holds for an arm the
+  operator leaves out of a subset run too: every ``SUITE_DATASETS`` arm not selected must carry an
+  operator reason, and the run refuses to start without one.
 * **The backend is pinned BEFORE any arm runs, and re-read after.** Sampling provenance at the
   end would attribute every result to whatever build happened to be serving when the last arm
   finished. Re-reading catches a build that moved mid-suite, which would mean the pins no longer
@@ -62,10 +64,79 @@ def resolve_endpoint(endpoint: str) -> str:
     )
 
 
+class OmittedArmWithoutReason(ValueError):
+    """A subset run left out a suite arm without saying why.
+
+    Raised before any network traffic or output directory, so the refusal costs nothing.
+    """
+
+
+def resolve_omissions(
+    datasets: list[str], omitted: dict[str, str | dict[str, Any]] | None
+) -> dict[str, dict[str, Any]]:
+    """Validate the operator's reasons for every ``SUITE_DATASETS`` arm not in ``datasets``.
+
+    Returns one ``status="skipped"`` manifest entry per omitted arm. A reason is either a string or
+    a record carrying a ``reason`` key (the shape of an ``excluded_arms.json`` entry); a record's
+    other fields are kept verbatim under ``exclusion_record`` so measured evidence travels with the
+    skip instead of living in a side file a reader may never open.
+
+    Refuses three things: an omitted arm with no reason (the silent omission this exists to stop),
+    a reason for an arm that IS selected (a contradiction that means the operator's intent is
+    unclear), and a reason for a name that is not a suite arm (a typo that would otherwise leave
+    the real arm unexplained).
+    """
+    omitted = dict(omitted or {})
+    unknown = sorted(k for k in omitted if k not in SUITE_DATASETS)
+    if unknown:
+        raise OmittedArmWithoutReason(
+            f"skip reason(s) given for {unknown}, which are not suite arms. "
+            f"Suite arms: {SUITE_DATASETS}."
+        )
+    contradictory = sorted(k for k in omitted if k in datasets)
+    if contradictory:
+        raise OmittedArmWithoutReason(
+            f"arm(s) {contradictory} are both selected to run and given a skip reason. "
+            f"Drop one or the other."
+        )
+
+    entries: dict[str, dict[str, Any]] = {}
+    missing: list[str] = []
+    for key in SUITE_DATASETS:
+        if key in datasets:
+            continue
+        given = omitted.get(key)
+        record = dict(given) if isinstance(given, dict) else {}
+        reason = record.pop("reason", None) if isinstance(given, dict) else given
+        if not isinstance(reason, str) or not reason.strip():
+            missing.append(key)
+            continue
+        entry: dict[str, Any] = {
+            "dataset": key,
+            "status": "skipped",
+            "reason": reason.strip(),
+            "skip_origin": "operator",
+        }
+        # The record's own arm/status restate the entry; everything else is evidence.
+        for restated in ("arm", "dataset", "status"):
+            record.pop(restated, None)
+        if record:
+            entry["exclusion_record"] = record
+        entries[key] = entry
+    if missing:
+        raise OmittedArmWithoutReason(
+            f"this run omits suite arm(s) {missing} without a reason. An arm left out of a subset "
+            f"run is recorded in the manifest as skipped WITH A REASON, never dropped silently. "
+            f"Give one per arm (CLI: --skip ARM='why' or --exclusions FILE)."
+        )
+    return entries
+
+
 def run_suite(
     out_dir: Path | str | None = None,
     *,
     datasets: list[str] | None = None,
+    omitted: dict[str, str | dict[str, Any]] | None = None,
     endpoint: str = "production",
     api_key: str | None = None,
     kestrel_url: str = DEFAULT_KESTREL_URL,
@@ -76,10 +147,15 @@ def run_suite(
     """Run the suite and return ``{"out_dir", "manifest", "results"}``.
 
     ``runners`` is injectable so the aggregation logic is testable offline without any network.
+
+    ``omitted`` maps every ``SUITE_DATASETS`` arm NOT in ``datasets`` to the operator's reason
+    (see ``resolve_omissions``). A subset run without a reason for each omitted arm raises
+    ``OmittedArmWithoutReason`` before anything is fetched or written.
     """
     resolved_endpoint = resolve_endpoint(endpoint)
     runners = ARM_RUNNERS if runners is None else runners
     datasets = list(SUITE_DATASETS if datasets is None else datasets)
+    operator_skips = resolve_omissions(datasets, omitted)
 
     run_id = new_run_id("suite")
     suite_dir = (
@@ -166,9 +242,12 @@ def run_suite(
                 }
             )
 
+    results.extend(operator_skips.values())
     for key, reason in SUITE_SKIPPED.items():
         if key not in datasets:
-            results.append({"dataset": key, "status": "skipped", "reason": reason})
+            results.append(
+                {"dataset": key, "status": "skipped", "reason": reason, "skip_origin": "registry"}
+            )
 
     kg = provenance.kg_build
     manifest: dict[str, Any] = {
@@ -205,6 +284,10 @@ def run_suite(
         # True only when every attempted arm completed every sub-arm. A scheduled run should read
         # this rather than n_failed alone.
         "complete": not any(r["status"] in ("failed", "partial") for r in results),
+        # False when the operator left suite arms out. A subset run can be complete (nothing it
+        # attempted broke) and still not be the full benchmark; the two are different questions.
+        "full_suite": not operator_skips,
+        "operator_skipped": sorted(operator_skips),
     }
 
     if probe_live:
@@ -332,6 +415,15 @@ def _headline(record: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+def _table_cell(text: str) -> str:
+    """Make free text safe inside one Markdown table cell.
+
+    Skip reasons are operator-supplied, so a ``|`` or a newline in one would split the row or
+    fabricate an extra one, garbling exactly the account of what was skipped and why.
+    """
+    return " ".join(str(text).split()).replace("|", "\\|")
+
+
 def _suite_readme(manifest: dict[str, Any]) -> str:
     """A short human-readable index beside the machine-readable manifest.
 
@@ -354,6 +446,14 @@ def _suite_readme(manifest: dict[str, Any]) -> str:
         f"{manifest['n_ok']} ok, {manifest['n_partial']} partial, {manifest['n_failed']} failed, "
         f"{manifest['n_skipped']} skipped.",
         "",
+        (
+            "Scope: full suite."
+            if manifest.get("full_suite", True)
+            else f"Scope: SUBSET. The operator omitted {', '.join(manifest['operator_skipped'])}; "
+            f"each is a skipped row below with the operator's reason. This run is not the full "
+            f"benchmark."
+        ),
+        "",
         "## Arms",
         "",
         "| arm | status | label | why this label | declared role | note |",
@@ -361,9 +461,13 @@ def _suite_readme(manifest: dict[str, Any]) -> str:
     ]
     for entry in manifest["datasets"]:
         circ = (manifest["circularity"].get(entry["dataset"], {}) or {}).get("label", "")
+        if entry["status"] == "skipped":
+            # A skipped arm measured nothing, so it has no claim to label. Printing the arm's
+            # circularity verdict here read as if a skipped arm had an accuracy_candidate result.
+            circ = ""
         declared = entry.get("role") or ""
         flag = " **(disagrees)**" if circ and declared and circ != declared else ""
-        note = entry.get("reason") or entry.get("error") or ""
+        note = _table_cell(entry.get("reason") or entry.get("error") or "")
         lines.append(
             f"| {entry['dataset']} | {entry['status']} | "
             f"{weakest_claim(declared, circ) or 'n/a'} | "

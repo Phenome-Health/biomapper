@@ -13,6 +13,7 @@ import pytest
 
 from biomapper.benchmarks.api_mapper import ApiMapper, BatchOrderMismatchError
 from biomapper.benchmarks.arms import IncompleteUnionError, require_complete_union
+from biomapper.benchmarks.config import SUITE_DATASETS
 from biomapper.benchmarks.runner import VocabRun
 from biomapper.benchmarks.suite import run_suite
 from biomapper.models import MappingResult
@@ -25,6 +26,11 @@ def _vocab_run(
     return VocabRun(
         vocab=vocab, ok=ok, output_tsv=output_tsv, stats=None, manifest=None, error=error
     )
+
+
+def _others(*selected: str) -> dict[str, str]:
+    """A reason for every suite arm these single-arm tests leave out, as the suite requires."""
+    return {k: "not under test" for k in SUITE_DATASETS if k not in selected}
 
 
 def _mapper() -> ApiMapper:
@@ -120,6 +126,7 @@ def test_a_failed_sub_arm_makes_the_dataset_partial_not_ok(tmp_path):
     outcome = run_suite(
         out_dir=tmp_path,
         datasets=["metaboliteannotator"],
+        omitted=_others("metaboliteannotator"),
         probe_live=False,
         runners={
             "metaboliteannotator": _runner(
@@ -150,6 +157,7 @@ def test_an_arm_with_every_sub_arm_ok_is_still_ok(tmp_path):
     outcome = run_suite(
         out_dir=tmp_path,
         datasets=["metabench"],
+        omitted=_others("metabench"),
         probe_live=False,
         runners={
             "metabench": _runner(
@@ -171,7 +179,12 @@ def test_an_arm_with_every_sub_arm_ok_is_still_ok(tmp_path):
 
 def test_a_skip_is_not_a_failure_and_keeps_the_run_complete(tmp_path):
     """A recorded, deliberate outcome with a reason is not the same as something breaking."""
-    outcome = run_suite(out_dir=tmp_path, datasets=["swisslipids"], probe_live=False)
+    outcome = run_suite(
+        out_dir=tmp_path,
+        datasets=["swisslipids"],
+        omitted=_others("swisslipids"),
+        probe_live=False,
+    )
     manifest = outcome["manifest"]
     entry = next(d for d in manifest["datasets"] if d["dataset"] == "swisslipids")
     assert entry["status"] == "skipped"
@@ -184,6 +197,7 @@ def test_the_readme_names_partial_arms(tmp_path):
     run_suite(
         out_dir=tmp_path,
         datasets=["metabench"],
+        omitted=_others("metabench"),
         probe_live=False,
         runners={
             "metabench": _runner(

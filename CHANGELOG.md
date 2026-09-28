@@ -35,6 +35,19 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **`all --only` no longer drops arms from the manifest silently.** An arm left out of a subset run
+  was absent from `suite_manifest.json` entirely: no entry, no reason, indistinguishable from an arm
+  that fell out of the registry by accident. The 2026-09-27 run had to write `excluded_arms.json`
+  beside the manifest to explain MetaboliteAnnotator's absence. Every `SUITE_DATASETS` arm not
+  selected is now a `status="skipped"` entry with the operator's reason (`skip_origin="operator"`),
+  and the command refuses to start (exit 2, before any network call) if any omitted arm has none.
+  Reasons come from `--skip ARM=REASON` (repeatable; without `--only` the run covers every arm not
+  skipped) or `--exclusions FILE`, which takes the `excluded_arms.json` shape and embeds each
+  record's evidence in the entry as `exclusion_record`. `run_suite(omitted=...)` enforces the same
+  rule for library callers. The manifest gains `full_suite` and `operator_skipped`, and the README
+  states `Scope: SUBSET` when arms were left out: a subset run can be `complete` and still not be
+  the full benchmark. `arm NAME` records the invocation itself as the reason for the other arms.
+
 - **The run README no longer calls a coverage arm "accuracy".** The arm table resolved its label as
   `role or circularity_label`, and `role` is a static config field that DEFAULTS to `"accuracy"`.
   The table therefore called RefMet accuracy while the same run's `circularity` register called it
