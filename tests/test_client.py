@@ -40,10 +40,16 @@ def client(api_key: str) -> BioMapperClient:
 
 
 class TestBioMapperClientInit:
-    def test_raises_without_key(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_keyless_without_key(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # Keyless by default since 1.5.4: no key configured is not an error.
         monkeypatch.delenv("BIOMAPPER_API_KEY", raising=False)
-        with pytest.raises(BioMapperConfigError, match="API key"):
-            BioMapperClient()
+        client = BioMapperClient()
+        assert client._anonymous is True
+        assert client._api_key is None
+
+    def test_explicit_key_with_anonymous_still_refused(self) -> None:
+        with pytest.raises(BioMapperConfigError, match="anonymous=True"):
+            BioMapperClient(api_key="k", anonymous=True)
 
     def test_reads_env_key(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("BIOMAPPER_API_KEY", "env-key-xyz")
@@ -1258,3 +1264,88 @@ class TestMapDatasetFileIter:
                 assert opened_handles[0].closed is False
                 await gen.aclose()
                 assert opened_handles[0].closed is True
+
+
+class TestKeylessByDefault:
+    """1.5.4: no key configured means no ``X-API-Key`` header, and a 401 says a key is needed."""
+
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_no_key_sends_no_header(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("BIOMAPPER_API_KEY", raising=False)
+        route = respx.post(f"{BASE_URL}/map/batch").mock(
+            return_value=httpx.Response(
+                200, json=make_batch_response([make_batch_entry("L-Histidine")])
+            )
+        )
+        async with BioMapperClient(timeout=5.0) as client:
+            await client.map_entities([{"name": "L-Histidine"}])
+        assert "x-api-key" not in route.calls[0].request.headers
+
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_argument_key_is_sent(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("BIOMAPPER_API_KEY", raising=False)
+        route = respx.post(f"{BASE_URL}/map/batch").mock(
+            return_value=httpx.Response(
+                200, json=make_batch_response([make_batch_entry("L-Histidine")])
+            )
+        )
+        async with BioMapperClient(api_key="arg-key", timeout=5.0) as client:
+            await client.map_entities([{"name": "L-Histidine"}])
+        assert route.calls[0].request.headers["x-api-key"] == "arg-key"
+
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_env_key_is_sent(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("BIOMAPPER_API_KEY", "env-key")
+        route = respx.post(f"{BASE_URL}/map/batch").mock(
+            return_value=httpx.Response(
+                200, json=make_batch_response([make_batch_entry("L-Histidine")])
+            )
+        )
+        async with BioMapperClient(timeout=5.0) as client:
+            await client.map_entities([{"name": "L-Histidine"}])
+        assert route.calls[0].request.headers["x-api-key"] == "env-key"
+
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_401_without_key_says_a_key_is_required(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("BIOMAPPER_API_KEY", raising=False)
+        respx.post(f"{BASE_URL}/map/entity").mock(return_value=httpx.Response(401))
+        async with BioMapperClient(timeout=5.0) as client:
+            with pytest.raises(BioMapperAuthError, match="requires an API key"):
+                await client.map_entity("L-Histidine")
+
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_403_with_key_says_rejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("BIOMAPPER_API_KEY", raising=False)
+        respx.post(f"{BASE_URL}/map/entity").mock(return_value=httpx.Response(403))
+        async with BioMapperClient(api_key="bad-key", timeout=5.0) as client:
+            with pytest.raises(BioMapperAuthError, match="API key rejected"):
+                await client.map_entity("L-Histidine")
+
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_batch_401_without_key_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # An auth failure is systemic, so batch mode raises instead of returning error rows.
+        monkeypatch.delenv("BIOMAPPER_API_KEY", raising=False)
+        respx.post(f"{BASE_URL}/map/batch").mock(return_value=httpx.Response(401))
+        async with BioMapperClient(timeout=5.0) as client:
+            with pytest.raises(BioMapperAuthError, match="requires an API key"):
+                await client.map_entities([{"name": "L-Histidine"}])
+
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_batch_5xx_is_still_a_per_record_error(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Transient chunk failures keep the per-record contract the benchmark retry relies on.
+        monkeypatch.delenv("BIOMAPPER_API_KEY", raising=False)
+        respx.post(f"{BASE_URL}/map/batch").mock(return_value=httpx.Response(503))
+        async with BioMapperClient(timeout=5.0) as client:
+            results = await client.map_entities([{"name": "L-Histidine"}])
+        assert results[0].error and "503" in results[0].error

@@ -88,12 +88,39 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   certified over adjudicable moves from 74.3% (398/536) to 61.4% (452/736). All 146 newly refuted
   links are lipid pairs linked across distinct species.
 
+### Changed
+
+- **The client is keyless by default. Public-API behaviour change.** `BioMapperClient` no longer
+  raises `BioMapperConfigError` when no key is configured; with neither `api_key=` nor
+  `BIOMAPPER_API_KEY` it sends no `X-API-Key` header, which is what the hosted deployment
+  expects. This is what makes the synchronous wrappers (`map_entity`, `map_entities`,
+  `map_dataset_file_sync`, `list_annotators`, `list_vocabularies`, `list_entity_types`) usable
+  without a key: they expose no `anonymous` flag, so before this change they could not reach a
+  keyless deployment at all. A key from the argument or the environment is still always sent,
+  `anonymous=True` still forces keyless, and passing an explicit key together with
+  `anonymous=True` still raises. A forgotten key against a deployment that does require one now
+  fails at the first request instead of at construction: 401/403 without a key raises
+  `BioMapperAuthError("This deployment requires an API key ...")`, and 401/403 with a key raises
+  `BioMapperAuthError("API key rejected ...")`.
+- **Batch auth failures now raise.** `map_entities` (async and sync, and so `map_entity`) used to
+  turn a 401/403 into an `error` on every record. An auth failure is systemic, so it now raises
+  `BioMapperAuthError` and aborts the batch; without this, a forgotten key against an
+  authenticated deployment would have come back as a batch of error rows rather than failing
+  loudly. Transient chunk failures (429, 5xx, timeouts, malformed responses) keep the per-record
+  contract, which the benchmark suite's retry and repair logic depends on.
+
 ### Documentation
 
 - The harmonization tutorial notebook was rewritten around `harmonize.link_by_intersection`,
   keyless and build-pinned, and now declares a kernel that has biomapper installed, so a reader's
   run cannot execute unpinned while printing pinned provenance (#16). Notebooks are not part of
   the wheel.
+- New `notebooks/monti_overlap_benchmark.ipynb`: BioMapper vs Monti et al. 2026 on the NECS
+  cross-cohort overlap (linked-count coverage, four cohorts) and a structural certification of the
+  NECS to Arivale links, replayed from a pinned kg 2.3.0 run with a small live check. Relands #23,
+  which was reverted in #24 so it could be reviewed before merging.
+- README: keyless by default is documented throughout; the API-key section, the sync-wrapper
+  caveat and the error-handling example are updated to match.
 
 ## [1.5.3] - 2026-09-25
 

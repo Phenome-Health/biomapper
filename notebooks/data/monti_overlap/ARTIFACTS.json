@@ -1,0 +1,42 @@
+{
+ "description": "Pinned artifacts replayed by notebooks/monti_overlap_benchmark.ipynb. Counts and provenance only: no per-link name lists from the non-public 4-cohort spreadsheet are shipped.",
+ "resolution_run": {
+  "run_dir": "cross_cohort_FINAL_v153_kg230_20260927T013646Z",
+  "biomapper": "1.5.3",
+  "kg_version": "2.3.0",
+  "kraken_package_version": "2.2.0",
+  "kestrel_version": "0.3.0",
+  "biolink_version": "4.2.5",
+  "git_commit": "3dd08a5b7b17e320ceb0c0091e09b781d4d90242",
+  "files": [
+   "manifest.json",
+   "KRAKEN_BUILD_PIN.json",
+   "subset_expected.json"
+  ]
+ },
+ "certification_run": {
+  "run_dir": "cross_cohort_FINAL_kg230_certify_main3761dc87_20260928T195225Z",
+  "biomapper_commit": "3761dc87621258d00d4e021fab4260ae54471052",
+  "note": "certify and readjudicate re-run on the resolution run's links; includes the legacy-HMDB fix (PR #17)",
+  "files": [
+   "certificate_report.json",
+   "readjudication_arivale.json"
+  ]
+ },
+ "pre_fix_certification": {
+  "run_dir": "cross_cohort_FINAL_v153_kg230_20260927T013646Z",
+  "biomapper": "1.5.3 with a transport-only TLS shim",
+  "note": "before the legacy-HMDB fix; methods note only, not the headline",
+  "files": [
+   "certificate_report.pre_hmdb_fix.json"
+  ]
+ },
+ "sha256": {
+  "KRAKEN_BUILD_PIN.json": "4d45d8e4459d856d6d3700a50d780b8313d26295327976d9466e16324dce97e8",
+  "certificate_report.json": "7f63660e86f6e916d3814df48906e91d32cd72094f0794fb3dc4b8dce6b19102",
+  "certificate_report.pre_hmdb_fix.json": "c7efb40ddbe2d30767edb4d06d0ac5c70a09a89690fe91c39f459e14e7b7d9fb",
+  "manifest.json": "bdd7524156cabf007a6a5de87b7f9961220a8e468c7b24b7effcb670539d029f",
+  "readjudication_arivale.json": "1e7eb1dcd25233eebe5f87cc5d2cddc9e886a0d2016aefc2663beffd524d927e",
+  "subset_expected.json": "1b34021b0ad20a52046acf35e75d0a7b77456438cae1cad8dd9aa123bd20b310"
+ }
+}

@@ -52,7 +52,8 @@ def map_entities(
 
     Args:
         records:           ``[{"name": str, "identifiers"?: dict}, ...]``
-        api_key:           API key (falls back to ``BIOMAPPER_API_KEY`` env var).
+        api_key:           Optional API key (falls back to ``BIOMAPPER_API_KEY``
+                           env var; keyless when neither is set).
         base_url:          Override the default API base URL.
         entity_type:       Biolink entity type applied to all records.
         annotation_mode:   ``"missing"`` | ``"all"`` | ``"none"``.
@@ -124,7 +125,8 @@ def map_entity(
     Args:
         name:            Compound name to map.
         identifiers:     Optional resolver hints, e.g. ``{"HMDB": "HMDB00177"}``.
-        api_key:         API key (falls back to ``BIOMAPPER_API_KEY`` env var).
+        api_key:         Optional API key (falls back to ``BIOMAPPER_API_KEY``
+                         env var; keyless when neither is set).
         base_url:        Override the default API base URL.
         entity_type:     Biolink entity type.
         annotation_mode: Annotation mode.
@@ -170,7 +172,8 @@ def list_entity_types(
     """List Biolink entity types supported by the API (sync).
 
     Args:
-        api_key:  API key (falls back to ``BIOMAPPER_API_KEY`` env var).
+        api_key:  Optional API key (falls back to ``BIOMAPPER_API_KEY``
+                  env var; keyless when neither is set).
         base_url: Override the default API base URL.
         timeout:  Per-request timeout in seconds.
 
@@ -198,7 +201,8 @@ def list_annotators(
     """List annotators available to the mapping pipeline (sync).
 
     Args:
-        api_key:  API key (falls back to ``BIOMAPPER_API_KEY`` env var).
+        api_key:  Optional API key (falls back to ``BIOMAPPER_API_KEY``
+                  env var; keyless when neither is set).
         base_url: Override the default API base URL.
         timeout:  Per-request timeout in seconds.
 
@@ -225,7 +229,8 @@ def list_vocabularies(
     """List identifier vocabularies supported by the API (sync).
 
     Args:
-        api_key:  API key (falls back to ``BIOMAPPER_API_KEY`` env var).
+        api_key:  Optional API key (falls back to ``BIOMAPPER_API_KEY``
+                  env var; keyless when neither is set).
         base_url: Override the default API base URL.
         timeout:  Per-request timeout in seconds.
 

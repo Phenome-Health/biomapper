@@ -259,6 +259,19 @@ class TestMapDatasetFileSyncCallback:
 
 class TestMapDatasetFileSyncErrors:
     @respx.mock
+    def test_initial_401_with_no_key_says_a_key_is_required(
+        self, tsv_path: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("BIOMAPPER_API_KEY", raising=False)
+        respx.post(DATASET_URL).mock(return_value=httpx.Response(401))
+        with pytest.raises(BioMapperAuthError, match="requires an API key"):
+            map_dataset_file_sync(
+                tsv_path,
+                name_column="name",
+                provided_id_columns=["hmdb_id"],
+            )
+
+    @respx.mock
     def test_initial_401_propagates(
         self, tsv_path: Any, api_key: str
     ) -> None:

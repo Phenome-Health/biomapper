@@ -42,7 +42,7 @@ class BioMapperClient:
     Handles authentication, request serialization, error mapping, and optional
     rate-limited batch processing.
 
-    Usage (minimal)::
+    Usage (minimal, keyless against the hosted deployment)::
 
         async with BioMapperClient() as client:
             result = await client.map_entity("L-Histidine")
@@ -56,29 +56,33 @@ class BioMapperClient:
                 identifiers={"HMDB": "HMDB03349"},
             )
 
-    Usage (deployment with authentication disabled)::
+    Usage (force keyless even when ``BIOMAPPER_API_KEY`` is set)::
 
         async with BioMapperClient(anonymous=True) as client:
             result = await client.map_entity("L-Histidine")
 
     Args:
-        api_key:    BioMapper API key.  Defaults to ``BIOMAPPER_API_KEY`` env var.
+        api_key:    BioMapper API key. Optional. Defaults to the ``BIOMAPPER_API_KEY`` env var;
+                    when neither is set the client is keyless.
         base_url:   API root URL.  Override for staging/local instances.
         timeout:    Per-request timeout in seconds.
-        anonymous:  Send no ``X-API-Key`` header at all. A BioMapper2 deployment with no keys
-                    configured is open, and the public KRAKEN endpoint is keyless by design.
-                    For those, requiring a key forces callers to invent a placeholder, which is
-                    worse than sending nothing: a placeholder becomes a 403 the moment auth is
-                    switched on, and it puts a secret-shaped string into argv and logs. Must be
-                    set explicitly — it is never inferred from a missing key, so a forgotten
-                    ``BIOMAPPER_API_KEY`` still fails loudly instead of silently downgrading to
-                    an unauthenticated call.
-        httpx_kwargs: Extra kwargs forwarded to :class:`httpx.AsyncClient`.
+        anonymous:  Send no ``X-API-Key`` header even if ``BIOMAPPER_API_KEY`` is set.
+
+    Keyless by default (decided 2026-09-28, 1.5.4). The hosted deployment takes no key, so a
+    client with no key configured sends no ``X-API-Key`` header rather than refusing to start.
+    Earlier releases required ``anonymous=True`` to go keyless and raised on a missing key, so
+    that a forgotten ``BIOMAPPER_API_KEY`` could not silently downgrade to an unauthenticated
+    call. That protection is kept where it matters: against a deployment that does require a
+    key, the first request still fails loudly, with a ``BioMapperAuthError`` saying a key is
+    required, rather than at construction. A key from the argument or the environment is always
+    sent, and no placeholder header is ever sent: an empty ``X-API-Key`` is a present-but-unknown
+    key, which an authenticated deployment answers with 403 instead of the 401 that says a key
+    is needed.
 
     Raises:
-        BioMapperConfigError: If no key is resolvable and ``anonymous`` is False, or if a key is
-            supplied together with ``anonymous=True`` — an ambiguous instruction where guessing
-            which was meant would either leak a key or silently drop one.
+        BioMapperConfigError: If an explicit ``api_key`` is supplied together with
+            ``anonymous=True``, an ambiguous instruction where guessing which was meant would
+            either leak a key or silently drop one.
     """
 
     def __init__(
@@ -96,11 +100,8 @@ class BioMapperClient:
                 "which one you meant: drop the key to go keyless, or drop anonymous=True to "
                 "authenticate."
             )
-        if not resolved_key and not anonymous:
-            raise BioMapperConfigError(
-                "No API key provided. Pass api_key=, set BIOMAPPER_API_KEY, or pass "
-                "anonymous=True for a deployment with authentication disabled."
-            )
+        # Keyless by default: no key configured means no header, not an error.
+        anonymous = anonymous or not resolved_key
         self._anonymous = anonymous
         self._api_key = None if anonymous else resolved_key
         self._base_url = base_url.rstrip("/")
@@ -113,7 +114,7 @@ class BioMapperClient:
     # ------------------------------------------------------------------
 
     async def __aenter__(self) -> BioMapperClient:
-        # No header at all when anonymous. An empty ``X-API-Key`` is a *present but unknown* key,
+        # No header at all when keyless. An empty ``X-API-Key`` is a *present but unknown* key,
         # which an authenticated deployment answers with 403 rather than the 401 that would tell
         # the caller a key is needed.
         headers = {} if self._anonymous else {"X-API-Key": self._api_key or ""}
@@ -146,9 +147,12 @@ class BioMapperClient:
         """Map HTTP status codes to typed exceptions."""
         code = response.status_code
         if code == 401 or code == 403:
-            raise BioMapperAuthError(
-                f"Authentication failed (HTTP {code}). Check your API key."
-            )
+            if self._anonymous:
+                raise BioMapperAuthError(
+                    f"This deployment requires an API key (HTTP {code}): pass api_key= or set "
+                    "BIOMAPPER_API_KEY."
+                )
+            raise BioMapperAuthError(f"API key rejected (HTTP {code}).")
         if code == 429:
             retry_after: float | None = None
             if ra := response.headers.get("Retry-After"):
@@ -377,10 +381,16 @@ class BioMapperClient:
         Returns:
             List of :class:`~biomapper.models.MappingResult`, one per input record,
             in input order. Records that fail (either per-record errors in a
-            successful response or every record in a chunk-level HTTP failure)
-            return a result with ``error`` set rather than raising.
+            successful response or every record in a transient chunk-level
+            failure: 429, 5xx, timeout, malformed response) return a result with
+            ``error`` set rather than raising.
 
         Raises:
+            BioMapperAuthError: On HTTP 401/403. An auth failure is systemic, not
+                per-entity: every later chunk would fail the same way, so it aborts
+                the batch instead of turning every record into an error row. This is
+                what keeps a missing key against an authenticated deployment loud
+                now that the client is keyless by default.
             asyncio.CancelledError: Propagated immediately so callers can cancel
                 mid-batch. All other exceptions are caught and surfaced as
                 per-record errors.
@@ -470,7 +480,9 @@ class BioMapperClient:
                                 hmdb_hint=self._hmdb_hint(req.identifiers),
                             )
                         )
-                except asyncio.CancelledError:
+                except (asyncio.CancelledError, BioMapperAuthError):
+                    # Auth failures are systemic (every chunk would fail alike), so they
+                    # abort rather than becoming per-record errors.
                     raise
                 except Exception as exc:  # noqa: BLE001 — broad catch preserves "one bad chunk doesn't abort the batch"
                     for req in chunk:
