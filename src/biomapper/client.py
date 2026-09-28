@@ -74,10 +74,10 @@ class BioMapperClient:
     that a forgotten ``BIOMAPPER_API_KEY`` could not silently downgrade to an unauthenticated
     call. That protection is kept where it matters: against a deployment that does require a
     key, the first request still fails loudly, with a ``BioMapperAuthError`` saying a key is
-    required, rather than at construction. A key from the argument or the environment is always
-    sent, and no placeholder header is ever sent: an empty ``X-API-Key`` is a present-but-unknown
-    key, which an authenticated deployment answers with 403 instead of the 401 that says a key
-    is needed.
+    required, rather than at construction. A key from the argument or the environment is sent
+    unless ``anonymous=True`` is passed, and no placeholder header is ever sent: an empty
+    ``X-API-Key`` is a present-but-unknown key, which an authenticated deployment answers with
+    403 instead of the 401 that says a key is needed.
 
     Raises:
         BioMapperConfigError: If an explicit ``api_key`` is supplied together with

@@ -259,7 +259,9 @@ def test_harmonize_rejects_two_cohorts_sharing_a_label():
         harmonize([_result("a", "CHEBI:1")], [_result("b", "CHEBI:1")], a_label="c", b_label="c")
 
 
-@pytest.mark.parametrize("reserved", ["n_links"])
+@pytest.mark.parametrize(
+    "reserved", ["n_links", "links_by_basis", "n_name_only_links", "n_name_match_withheld"]
+)
 def test_harmonize_rejects_a_label_that_would_overwrite_a_summary_field(reserved):
     with pytest.raises(ValueError, match="reserved"):
         harmonize([_result("a", "CHEBI:1")], [_result("b", "CHEBI:1")], a_label=reserved)
@@ -269,7 +271,14 @@ def test_summary_keeps_both_cohorts_and_the_link_count_separate():
     summary = harmonize(
         [_result("a", "CHEBI:1")], [_result("b", "CHEBI:1")], a_label="x", b_label="y"
     ).summary()
-    assert set(summary) == {"n_links", "x", "y"}
+    assert set(summary) == {
+        "n_links",
+        "links_by_basis",
+        "n_name_only_links",
+        "n_name_match_withheld",
+        "x",
+        "y",
+    }
 
 
 def test_harmonization_result_defends_the_label_invariant_when_built_directly():

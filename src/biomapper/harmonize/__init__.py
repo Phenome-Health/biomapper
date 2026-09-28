@@ -34,12 +34,16 @@ from biomapper.harmonize.curies import (
     predicted_curies,
 )
 from biomapper.harmonize.linking import (
+    BASIS_ORDER,
+    NAME_CASEFOLD_MIN_LENGTH_EXCLUSIVE,
     HarmonizationResult,
     Link,
     OverlapResult,
     curie_sets_from_results,
     harmonize,
     link_by_intersection,
+    name_matches,
+    normalize_name,
 )
 
 __all__ = [
@@ -52,6 +56,10 @@ __all__ = [
     "link_by_intersection",
     "curie_sets_from_results",
     "harmonize",
+    "normalize_name",
+    "name_matches",
+    "BASIS_ORDER",
+    "NAME_CASEFOLD_MIN_LENGTH_EXCLUSIVE",
     "Link",
     "OverlapResult",
     "HarmonizationResult",

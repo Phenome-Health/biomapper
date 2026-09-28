@@ -62,7 +62,7 @@ or in a `.env` file in your project root:
 BIOMAPPER_API_KEY=your-key-here
 ```
 
-A configured key is always sent. To force a keyless call while `BIOMAPPER_API_KEY` is set, use
+A configured key is sent unless `anonymous=True` is passed. To force a keyless call while `BIOMAPPER_API_KEY` is set, use
 `BioMapperClient(anonymous=True)`. If a deployment does require a key and none was sent, the first
 request raises `BioMapperAuthError` saying so.
 
@@ -310,10 +310,37 @@ extract_hmdb_id(None)                                         # None
 
 ## Harmonization (cross-dataset equivalence)
 
-`biomapper.harmonize` links two **already-resolved** datasets locally. Two entities, one per
-cohort, are equivalent when they resolve to the same canonical KRAKEN node. It is an
-identifier-set intersection, never string matching, and it runs entirely on the client: no extra
-requests, no knowledge-graph access, so it works offline and is fully testable without a network.
+`biomapper.harmonize` links two **already-resolved** datasets locally. It runs entirely on the
+client: no extra requests, no knowledge-graph access, so it works offline and is fully testable
+without a network. Two entities, one per cohort, link when any of these holds, and each link
+records which one as its `basis` (strongest first):
+
+| basis | rule |
+|---|---|
+| `node` | both resolved to the same chosen KRAKEN node |
+| `identifier` | their identifier-only CURIE sets intersect, on different nodes |
+| `name_exact` | their names are equal after whitespace normalization |
+| `name_casefold` | their names are equal only after casefold (see the short-name rule below) |
+
+Name links (from 1.5.5, **opt-in** with `link_by_name=True`) catch entities that resolution put
+on different nodes, such as `acetylcarnitine (c2)` and `acetylcarnitine (C2)`. They are currently
+intended for small-molecule / metabolite panels; other entity types are pending review of
+case-sensitive naming conventions (gene and protein symbols, for example). Rules:
+
+- Only entities that resolved on both sides link by name; an unresolved one stays a refusal
+  candidate. Names are compared on `query_name`, even when you pass a custom `key=`; links are
+  reported under the keys.
+- No fuzzy matching and no punctuation stripping, only whitespace normalization.
+- A **casefold-only** match on a name of `NAME_CASEFOLD_MIN_LENGTH_EXCLUSIVE` (4) characters or
+  fewer is **withheld**, not linked, and listed in `report.name_match_withheld` for review:
+  `Co` (cobalt) and `CO` (carbon monoxide) are different things.
+- Linking happens within one `harmonize()` call, so within one entity type. A cross-type
+  collision such as cAMP (metabolite) vs CAMP (gene) cannot arise and is out of scope.
+- Off by default: `harmonize(...)` links by `node` and `identifier` only, exactly as before 1.5.5.
+
+`report.summary()` counts links by basis (`links_by_basis`) and reports `n_name_only_links` (links
+with no identifier evidence) and `n_name_match_withheld`, so a report can say "X linked by
+identifier, Y by name only". Every link also carries `bases`, the full set of bases that apply.
 
 ```python
 from biomapper import map_entities
@@ -325,14 +352,15 @@ arivale = map_entities([{"name": "D-glucose"}, {"name": "X-12345"}])
 report = harmonize(ukbb, arivale, a_label="ukbb", b_label="arivale")
 
 report.n_links          # 1
-report.links[0].shared  # frozenset({'CHEBI:17234', 'KEGG:C00031'}) — what formed the link
+report.links[0].basis   # 'node'
+report.links[0].shared  # frozenset({'CHEBI:17234', 'KEGG:C00031'}): the identifiers shared
 report.b_unresolved     # ('X-12345',) — a refusal candidate, never silently dropped
 report.summary()
 ```
 
 Two rules the linker is built around:
 
-1. **Identifier-only.** `INCHIKEY`, `INCHI` and `SMILES` are excluded. Linking on a structure
+1. **No structure identifiers.** `INCHIKEY`, `INCHI` and `SMILES` are excluded. Linking on a structure
    hash would make any downstream structural certificate circular and would make precision 100%
    by construction.
 2. **Prefix synonyms normalize.** `KEGG.COMPOUND:C00031` equals `KEGG:C00031`; genuinely
