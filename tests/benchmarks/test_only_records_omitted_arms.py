@@ -225,3 +225,43 @@ def test_a_reason_with_pipes_and_newlines_stays_in_one_readme_row(tmp_path):
     assert len(rows) == 1
     assert rows[0].startswith("| lmsd | skipped |")
     assert rows[0].endswith("| slow \\| flaky second line |")
+
+
+def test_a_repeated_arm_runs_once_and_has_one_entry(tmp_path):
+    """`--only hgnc hgnc` ran hgnc twice and wrote two manifest entries (n_ok counted it twice)."""
+    calls: list[str] = []
+
+    def counting(**_kwargs):  # noqa: ANN003
+        calls.append("hgnc")
+        return {"out_dir": "", "dataset": "hgnc", "role": "coverage", "results": {}}
+
+    manifest = run_suite(
+        out_dir=tmp_path,
+        datasets=["hgnc", "metabench", "hgnc"],
+        omitted={k: "x" for k in SUITE_DATASETS if k not in ("hgnc", "metabench")},
+        probe_live=False,
+        runners={"hgnc": counting, "metabench": _ok_runner("metabench")},
+    )["manifest"]
+    assert calls == ["hgnc"]
+    assert [d["dataset"] for d in manifest["datasets"] if d["status"] == "ok"] == [
+        "hgnc",
+        "metabench",
+    ]
+    assert manifest["n_ok"] == 2
+
+
+def test_cli_a_repeated_only_arm_reaches_the_suite_once(captured, tmp_path):
+    others = [k for k in SUITE_DATASETS if k != "hgnc"]
+    skips = [arg for k in others for arg in ("--skip", f"{k}=x")]
+    assert cli.main(["all", "--only", "hgnc", "hgnc", *skips]) == 0
+    manifest = json.loads((tmp_path / "suite_manifest.json").read_text())
+    assert [d["dataset"] for d in manifest["datasets"]].count("hgnc") == 1
+
+
+def test_cli_an_arm_both_selected_and_skipped_is_refused_before_running(captured):
+    others = [k for k in SUITE_DATASETS if k != "hgnc"]
+    skips = [arg for k in others for arg in ("--skip", f"{k}=x")]
+    with pytest.raises(SystemExit) as excinfo:
+        cli.main(["all", "--only", "hgnc", "--skip", "hgnc=x", *skips])
+    assert excinfo.value.code == 2
+    assert captured == {}

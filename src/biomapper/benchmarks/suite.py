@@ -154,7 +154,15 @@ def run_suite(
     """
     resolved_endpoint = resolve_endpoint(endpoint)
     runners = ARM_RUNNERS if runners is None else runners
-    datasets = list(SUITE_DATASETS if datasets is None else datasets)
+    requested = list(SUITE_DATASETS if datasets is None else datasets)
+    # First occurrence wins, order kept. A repeated name (``--only hgnc hgnc``) otherwise ran the
+    # arm twice and wrote two manifest entries for it, double-counting it in n_ok.
+    datasets = list(dict.fromkeys(requested))
+    if len(datasets) != len(requested):
+        logger.warning(
+            "arm(s) %s named more than once; each runs once.",
+            sorted({k for k in requested if requested.count(k) > 1}),
+        )
     operator_skips = resolve_omissions(datasets, omitted)
 
     run_id = new_run_id("suite")
