@@ -77,7 +77,11 @@ import pandas as pd
 
 from biomapper.benchmarks.adapters.metlinkr import force_ipv4
 from biomapper.benchmarks.pacing import PUBCHEM_MIN_INTERVAL_S, Pacer
-from biomapper.benchmarks.scorers.independent_inchikey import _PUG_REST, _first_block
+from biomapper.benchmarks.scorers.independent_inchikey import (
+    _PUG_REST,
+    _first_block,
+    pubchem_session,
+)
 
 # Monoisotopic masses agree to well under this when two records describe one compound; a real
 # difference in composition is far larger. Deliberately loose, because the question here is "same
@@ -276,10 +280,8 @@ class OutsideResolver:
         session: Any | None = None,  # noqa: ANN401
         min_interval_s: float = PUBCHEM_MIN_INTERVAL_S,
     ) -> None:
-        import requests
-
         self._timeout = timeout
-        self._session = session or requests.Session()
+        self._session = session or pubchem_session()
         self._cache: dict[str, OutsideRecord] = {}
         self._pacer = Pacer(min_interval_s)
 

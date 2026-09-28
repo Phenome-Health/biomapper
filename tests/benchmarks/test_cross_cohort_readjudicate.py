@@ -490,3 +490,27 @@ def test_readjudicate_derives_name_equality_and_records_it():
     assert bool(row["same_vendor_name"]) is False
     # Neither name carries an acyl annotation, so this is the triage bucket, not adverse evidence.
     assert row["readjudication"] == "distinct_vendor_names_structure_unverified"
+
+
+def test_both_pubchem_callers_default_to_the_stdlib_tls_session():
+    # PubChem's edge answers urllib3's own default TLS context with 503 PUGREST.ServerBusy on every
+    # request, which reads as load. Both callers must default to the stdlib-context session.
+    import ssl
+
+    from biomapper.benchmarks.cross_cohort_readjudicate import OutsideResolver
+    from biomapper.benchmarks.scorers.independent_inchikey import PubChemInChIKeyResolver
+
+    for resolver in (OutsideResolver(), PubChemInChIKeyResolver()):
+        adapter = resolver._session.get_adapter("https://pubchem.ncbi.nlm.nih.gov/")  # noqa: SLF001
+        context = adapter.poolmanager.connection_pool_kw.get("ssl_context")
+        assert isinstance(context, ssl.SSLContext)
+
+
+def test_a_proxied_pubchem_route_also_gets_the_stdlib_tls_context():
+    import ssl
+
+    from biomapper.benchmarks.scorers.independent_inchikey import pubchem_session
+
+    adapter = pubchem_session().get_adapter("https://pubchem.ncbi.nlm.nih.gov/")
+    manager = adapter.proxy_manager_for("http://proxy.invalid:3128")
+    assert isinstance(manager.connection_pool_kw.get("ssl_context"), ssl.SSLContext)

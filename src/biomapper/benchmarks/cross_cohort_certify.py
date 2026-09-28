@@ -56,6 +56,7 @@ from biomapper.benchmarks.scorers.independent_link_certificate_overlap import (
     certify_links_tagged,
 )
 from biomapper.benchmarks.scorers.link_certificate import certify_link
+from biomapper.benchmarks.scorers.metlinkr_scorer import _hmdb_accession_forms
 
 DEFAULT_MOESM5 = (
     Path.home()
@@ -234,13 +235,18 @@ def arivale_independent_blocks(
             source = "provided-pubchem"
             any_transient_failure = status == "lookup_failed"
         if block is None and hmdb:
-            # Paced by the resolver, on its request path. Sleeping once per row left this fallback
-            # unspaced and able to draw a lookup_failed of its own.
-            block, status = resolver._cached_resolve(  # noqa: SLF001
-                f"hmdb:{hmdb}", f"compound/xref/RegistryID/{hmdb}/property/InChIKey/TXT"
-            )
+            # The Arivale panel ships legacy 5-digit accessions (HMDB13127), which PubChem's
+            # RegistryID index does not know: they come back 404, a clean miss, and a real structure
+            # reads as absent. Try the zero-padded modern form first, the original second.
+            # Paced by the resolver, on its request path.
+            for form in _hmdb_accession_forms(hmdb):
+                block, status = resolver._cached_resolve(  # noqa: SLF001
+                    f"hmdb:{form}", f"compound/xref/RegistryID/{form}/property/InChIKey/TXT"
+                )
+                any_transient_failure = any_transient_failure or status == "lookup_failed"
+                if block is not None:
+                    break
             source = "provided-hmdb"
-            any_transient_failure = any_transient_failure or status == "lookup_failed"
         if block is None and any_transient_failure:
             status = "lookup_failed"
         if not cid and not hmdb:
@@ -395,6 +401,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--run-dir", type=Path, required=True, help="A cross_cohort run directory")
     parser.add_argument("--moesm5", type=Path, default=DEFAULT_MOESM5)
     parser.add_argument("--arivale-xlsx", type=Path, default=DEFAULT_ARIVALE_XLSX)
+    parser.add_argument(
+        "--min-interval-s",
+        type=float,
+        default=PUBCHEM_MIN_INTERVAL_S,
+        help="Seconds between PubChem requests for the cohort-side lookups. Raise it under a rate "
+        "limit; a throttled request becomes a lookup_failed refusal that is a run artifact.",
+    )
     return parser
 
 
@@ -461,7 +474,9 @@ def main(argv: list[str] | None = None) -> int:
             continue
 
         needed = {link.b_name for link in links}
-        cohort_blocks, cohort_card = arivale_independent_blocks(args.arivale_xlsx, needed)
+        cohort_blocks, cohort_card = arivale_independent_blocks(
+            args.arivale_xlsx, needed, min_interval_s=args.min_interval_s
+        )
         overlap, untagged = certify_links_tagged(links, necs_blocks, cohort_blocks)
         cases = adjudicate_cases(links, necs_blocks, cohort_blocks)
         cases.to_csv(run_dir / f"certificate_cases_{cohort}.csv", index=False)

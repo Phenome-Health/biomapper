@@ -228,7 +228,7 @@ def test_certify_reports_names_only_cohorts_as_refused_by_construction(tmp_path,
     monkeypatch.setattr(
         certify_module,
         "arivale_independent_blocks",
-        lambda _path, _names: (
+        lambda _path, _names, **_kw: (
             {
                 "glucose": ProvidedBlock(
                     "WQZGKKKJIJFFOK", "provided-pubchem", "success", "arivale:g"
@@ -263,7 +263,7 @@ def test_certify_refuses_a_run_directory_with_a_missing_link_file(tmp_path, monk
     monkeypatch.setattr(
         certify_module,
         "arivale_independent_blocks",
-        lambda _path, _names: ({}, {"oracle": "stub"}),
+        lambda _path, _names, **_kw: ({}, {"oracle": "stub"}),
     )
     # A missing artifact must not be reported as a cohort with zero links.
     with pytest.raises(MissingLinkArtifactError):
@@ -279,7 +279,7 @@ def test_certify_refuses_a_link_file_that_disagrees_with_its_manifest(tmp_path, 
     monkeypatch.setattr(
         certify_module,
         "arivale_independent_blocks",
-        lambda _path, _names: ({}, {"oracle": "stub"}),
+        lambda _path, _names, **_kw: ({}, {"oracle": "stub"}),
     )
     assert (
         certify_module.main(
@@ -403,3 +403,83 @@ def test_both_sides_tagged_without_blocks_is_its_own_class():
         {"glucose": _cohort(None, status="clean_miss")},
     )
     assert cases.iloc[0]["refusal_class"] == "no_independent_structure_either_side"
+
+
+class _RecordingResolver:
+    """Stands in for PubChemInChIKeyResolver: answers only the ids in ``known``, 404s the rest."""
+
+    def __init__(self, known: dict[str, str], **_kw: object) -> None:
+        self.known = known
+        self.asked: list[str] = []
+
+    def _cached_resolve(self, key: str, _path: str) -> tuple[str | None, str]:
+        self.asked.append(key)
+        block = self.known.get(key)
+        return block, ("success" if block else "clean_miss")
+
+
+def _arivale_xlsx(path: Path, rows: list[dict[str, str]]) -> None:
+    columns = ["BiochemicalName", "CAS_ID", "KEGG_ID", "HMDB_ID", "PubChem_ID"]
+    frame = pd.DataFrame(rows, columns=columns)
+    with pd.ExcelWriter(path) as writer:
+        frame.fillna("").to_excel(writer, sheet_name="Arivale_Metabolomics", index=False)
+
+
+def test_a_legacy_hmdb_accession_is_looked_up_in_its_modern_form(tmp_path, monkeypatch):
+    # The Arivale panel ships 5-digit accessions that PubChem's RegistryID index 404s. Sent as-is,
+    # a real structure came back as a clean miss and its links refused as absent.
+    import biomapper.benchmarks.scorers.independent_inchikey as inchikey_module
+
+    resolver = _RecordingResolver({"hmdb:HMDB0013127": "UEFRDQSMQXDWTO"})
+    monkeypatch.setattr(inchikey_module, "PubChemInChIKeyResolver", lambda **_kw: resolver)
+    xlsx = tmp_path / "arivale.xlsx"
+    _arivale_xlsx(xlsx, [{"BiochemicalName": "3-hydroxybutyrylcarnitine", "HMDB_ID": "HMDB13127"}])
+
+    blocks, card = certify_module.arivale_independent_blocks(xlsx, {"3-hydroxybutyrylcarnitine"})
+
+    entry = blocks["3-hydroxybutyrylcarnitine"]
+    assert entry.block == "UEFRDQSMQXDWTO" and entry.status == "success"
+    assert entry.source == "provided-hmdb"
+    assert resolver.asked == ["hmdb:HMDB0013127"]  # modern form first, no wasted legacy request
+    assert card["blocks_resolved"] == 1
+
+
+def test_a_legacy_hmdb_accession_falls_back_to_its_original_form(tmp_path, monkeypatch):
+    import biomapper.benchmarks.scorers.independent_inchikey as inchikey_module
+
+    resolver = _RecordingResolver({})
+    monkeypatch.setattr(inchikey_module, "PubChemInChIKeyResolver", lambda **_kw: resolver)
+    xlsx = tmp_path / "arivale.xlsx"
+    _arivale_xlsx(xlsx, [{"BiochemicalName": "x", "HMDB_ID": "HMDB13127"}])
+
+    blocks, _card = certify_module.arivale_independent_blocks(xlsx, {"x"})
+
+    assert resolver.asked == ["hmdb:HMDB0013127", "hmdb:HMDB13127"]
+    assert blocks["x"].status == "clean_miss"
+
+
+def test_min_interval_is_settable_from_the_command_line(tmp_path, monkeypatch):
+    run = _run_dir(tmp_path)
+    moesm5 = tmp_path / "moesm5.xlsx"
+    _moesm5_xlsx(moesm5)
+    seen: dict[str, float] = {}
+
+    def _stub(_path, _names, *, min_interval_s):
+        seen["min_interval_s"] = min_interval_s
+        return {}, {"oracle": "stub", "min_interval_s": min_interval_s}
+
+    monkeypatch.setattr(certify_module, "arivale_independent_blocks", _stub)
+    exit_code = certify_module.main(
+        [
+            "--run-dir",
+            str(run),
+            "--moesm5",
+            str(moesm5),
+            "--arivale-xlsx",
+            str(moesm5),
+            "--min-interval-s",
+            "1.5",
+        ]
+    )
+    assert exit_code == 0
+    assert seen["min_interval_s"] == 1.5
