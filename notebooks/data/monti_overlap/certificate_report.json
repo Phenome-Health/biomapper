@@ -1,0 +1,98 @@
+{
+  "necs_gold": {
+    "path": "/home/trentleslie/external_benchmark_runs/monti_string_replication_20260820T182111Z/monti_MOESM5_TableS5.xlsx",
+    "sha256": "365b7cf304529e7cfa1619134d9d11cc9dade28386e9ea3e8b2dc6bc71eb8457",
+    "n_rows": 1495,
+    "n_entries": 1495,
+    "n_with_curated_inchikey": 943,
+    "coverage": 0.6308,
+    "two_vintage_first_block_agreement": {
+      "both_present": 682,
+      "agree": 643,
+      "disagree": 39
+    },
+    "rejected_gold_values": {
+      "4000": 10
+    },
+    "n_corrupt_gold_cells": 10,
+    "n_rows_with_any_corrupt_gold": 10,
+    "n_rows_excluded_by_screen": 1,
+    "rows_excluded_by_screen": [
+      "1-lignoceroyl-gpc (24:0)"
+    ],
+    "screen": "candidate keys screened with gold_structure.has_gold_structure, which rejects blanks and the corrupt '4000' placeholder. An unscreened sentinel becomes a 4-character block that can never match a real one, so every link through that row returns REFUTED and reads as a wrong molecule rather than a broken gold cell.",
+    "known_defect": "the NECS curated gold carries roughly 5% InChIKey errors, so a disagreement with it is not by itself evidence that BioMapper is wrong"
+  },
+  "certifiable_cohorts": [
+    "arivale"
+  ],
+  "cohorts": {
+    "arivale": {
+      "certifiable": true,
+      "n_links": 1792,
+      "certified": 452,
+      "refuted": 284,
+      "refused": 1056,
+      "adjudicable": 736,
+      "certified_rate_over_adjudicable": 0.6141304347826086,
+      "untagged_sides_canary": 0,
+      "refusal_classes": {
+        "cohort_panel_has_no_structure_resolvable_id": 374,
+        "necs_gold_has_no_curated_inchikey": 217,
+        "no_independent_structure_either_side": 464,
+        "cohort_lookup_clean_miss": 1
+      },
+      "stereo_checked_any": false,
+      "comparison_granularity": "InChIKey first block (connectivity) only. Not tautomer- or charge-invariant: over-flags tautomers as refuted, silently accepts stereoisomer errors.",
+      "independent_source_card": {
+        "path": "/home/trentleslie/external_benchmark_runs/arivale_public_panel_20260804/watanabe2023_supp_data2_analytes.xlsx",
+        "sha256": "604dfca2a4601916f3db9964616063a1b471b9b68c2d221b73eb32fab89136f0",
+        "panel_n": 659,
+        "names_requested": 591,
+        "entries_recorded": 591,
+        "blocks_resolved": 468,
+        "lookup_status": {
+          "success": 468,
+          "no_structure_resolvable_id": 122,
+          "clean_miss": 1
+        },
+        "lookup_route": {
+          "provided-pubchem": 405,
+          "none": 122,
+          "provided-hmdb": 64
+        },
+        "oracle": "PubChem PUG-REST (first block only, connectivity granularity)",
+        "min_interval_s": 0.25,
+        "transient_failures": 0,
+        "transient_failure_warning": "a lookup_failed is the service pushing back, not an absent structure. Any non-zero count here means that many refusals are run artifacts and the certified/refused split is not publishable until they are retried."
+      }
+    },
+    "xuetal": {
+      "certifiable": false,
+      "n_links": 1934,
+      "certified": 0,
+      "refuted": 0,
+      "refused": 1934,
+      "refused_by_construction": true,
+      "note": "names-only panel with no vendor identifier column, so no structure can be resolved independently of the KRAKEN node that formed the link. Links are countable; they are never structurally certifiable. This is a property of the source panel, not an uncertified failure and not a BioMapper error."
+    },
+    "llfs": {
+      "certifiable": false,
+      "n_links": 138,
+      "certified": 0,
+      "refuted": 0,
+      "refused": 138,
+      "refused_by_construction": true,
+      "note": "names-only panel with no vendor identifier column, so no structure can be resolved independently of the KRAKEN node that formed the link. Links are countable; they are never structurally certifiable. This is a property of the source panel, not an uncertified failure and not a BioMapper error."
+    },
+    "blsa": {
+      "certifiable": false,
+      "n_links": 116,
+      "certified": 0,
+      "refuted": 0,
+      "refused": 116,
+      "refused_by_construction": true,
+      "note": "names-only panel with no vendor identifier column, so no structure can be resolved independently of the KRAKEN node that formed the link. Links are countable; they are never structurally certifiable. This is a property of the source panel, not an uncertified failure and not a BioMapper error."
+    }
+  }
+}
