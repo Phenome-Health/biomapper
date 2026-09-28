@@ -35,6 +35,30 @@ from biomapper.benchmarks.adapters.metlinkr import force_ipv4
 _PUG_REST = "https://pubchem.ncbi.nlm.nih.gov/rest/pug"
 
 
+def pubchem_session() -> Any:  # noqa: ANN401 - a requests.Session
+    """A ``requests`` session whose HTTPS pool uses the stdlib default SSL context.
+
+    PubChem's edge rejects urllib3's own default TLS context with ``503 PUGREST.ServerBusy`` on
+    every request, while curl, httpx, and urllib3 handed ``ssl.create_default_context()`` all get
+    200 at the same moment (observed 2026-09-27: 0/10 vs 15/15). The 503 reads as load, so a whole
+    certification pass came back ``lookup_failed`` three times running and looked like an outage.
+    Both PubChem callers in this package take their default session from here.
+    """
+    import ssl
+
+    import requests
+    from requests.adapters import HTTPAdapter
+
+    class _StdlibTLSAdapter(HTTPAdapter):
+        def init_poolmanager(self, *args: Any, **kwargs: Any) -> None:
+            kwargs["ssl_context"] = ssl.create_default_context()
+            super().init_poolmanager(*args, **kwargs)
+
+    session = requests.Session()
+    session.mount("https://", _StdlibTLSAdapter())
+    return session
+
+
 def _first_block(inchikey: str | None) -> str | None:
     return inchikey.split("-")[0] if inchikey else None
 
@@ -70,10 +94,8 @@ class PubChemInChIKeyResolver:
         session: Any | None = None,  # noqa: ANN401
         pacer: Any | None = None,  # noqa: ANN401 - a biomapper.benchmarks.pacing.Pacer
     ) -> None:
-        import requests
-
         self._timeout = timeout
-        self._session = session or requests.Session()
+        self._session = session or pubchem_session()
         # Optional request pacer, consulted in ``_resolve_txt`` — i.e. on the REQUEST path, which
         # only runs after ``_cached_resolve`` has missed. Pacing outside the resolver cannot know
         # whether a request is about to be sent, so it sleeps on cache hits too. Default None keeps
