@@ -25,6 +25,8 @@ pip install biomapper
 pip install 'biomapper[benchmarks]'
 ```
 
+**Use 1.5.4 or later to call the hosted deployment without a key** (see [API keys](#api-keys-optional)).
+
 **Use 1.5.3 or later for the benchmark suite.** Earlier published releases, up to and including
 1.4.0, ship neither `biomapper.benchmarks` nor the `benchmarks` extra, so
 `pip install 'biomapper[benchmarks]'` against them warns that the extra is unknown and installs
@@ -43,22 +45,30 @@ which versions reached the index; 1.5.0 and 1.5.1 are tagged *(not published)*.
 
 ---
 
-## Getting an API key
+## API keys (optional)
 
-The BioMapper2 API requires an API key. To request access, email
-[trent.leslie@phenomehealth.org](mailto:trent.leslie@phenomehealth.org).
+No API key is needed for the hosted deployment (`https://biomapper.expertintheloop.io`). From
+1.5.4 the client is keyless by default: with no key configured it sends no `X-API-Key` header,
+and every entry point, including the synchronous wrappers, works as shown below.
 
-Once you have a key, set it in your environment:
+A key is only for a self-hosted or authenticated deployment. Pass it as `api_key=`, or set it in
+your environment:
 ```bash
 export BIOMAPPER_API_KEY=your-key-here
 ```
 
-Or add it to a `.env` file in your project root:
+or in a `.env` file in your project root:
 ```
 BIOMAPPER_API_KEY=your-key-here
 ```
 
-biomapper will pick it up automatically from either location.
+A configured key is always sent. To force a keyless call while `BIOMAPPER_API_KEY` is set, use
+`BioMapperClient(anonymous=True)`. If a deployment does require a key and none was sent, the first
+request raises `BioMapperAuthError` saying so.
+
+Releases before 1.5.4 raise `BioMapperConfigError` when no key is configured, and their
+synchronous wrappers cannot reach a keyless deployment; upgrade, or use
+`BioMapperClient(anonymous=True)` directly.
 
 ---
 
@@ -277,13 +287,8 @@ from biomapper import map_entities
 results = map_entities([{"name": "L-Histidine"}], progress=True)
 ```
 
-The worked notebooks are listed under [Notebooks](#notebooks). Both run against a keyless
-deployment, so no API key is needed, and both print the exact KRAKEN build that answered.
-
-Note that the keyless path currently requires `BioMapperClient(anonymous=True)` directly. The
-synchronous wrappers (`map_entity`, `map_entities`, `map_dataset_file_sync`, `list_annotators`,
-`list_vocabularies`, `list_entity_types`) take an `api_key` but expose no `anonymous` flag and no
-client-kwargs passthrough, so they cannot reach a deployment with authentication disabled.
+The worked notebooks are listed under [Notebooks](#notebooks). Both run against the keyless
+hosted deployment, so no API key is needed, and both print the exact KRAKEN build that answered.
 
 ### Preprocessing functions
 
@@ -419,19 +424,21 @@ footgun this model is designed to prevent.
 ```python
 from biomapper import (
     BioMapperError,       # base class
-    BioMapperAuthError,   # 401/403 — bad API key
+    BioMapperAuthError,   # 401/403: a key is required, or the key was rejected
     BioMapperRateLimitError,  # 429 — throttled
     BioMapperServerError,     # 5xx
     BioMapperTimeoutError,    # request timeout
-    BioMapperConfigError,     # missing API key / bad config
+    BioMapperConfigError,     # invalid config, e.g. api_key= together with anonymous=True
 )
 
 try:
     result = map_entity("Glucose")
 except BioMapperRateLimitError as e:
     print(f"Throttled. Retry after: {e.retry_after}s")
-except BioMapperAuthError:
-    print("Check your BIOMAPPER_API_KEY")
+except BioMapperAuthError as e:
+    # Only for a deployment that requires a key; the message says whether one was missing
+    # or rejected.
+    print(e)
 ```
 
 In batch mode (`map_entities`), per-record errors are caught and returned as

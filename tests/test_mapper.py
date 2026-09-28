@@ -5,7 +5,9 @@ from __future__ import annotations
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
+import respx
 
 from biomapper.mapper import (
     list_annotators,
@@ -121,3 +123,24 @@ class TestSummarize:
         assert summary.total_queried == 2
         assert summary.resolved == 1
         assert summary.resolution_rate == pytest.approx(0.5)
+
+
+class TestKeylessSyncWrappers:
+    @respx.mock
+    def test_map_entity_works_with_no_key_and_no_env_var(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # The sync wrappers take no ``anonymous`` flag, so before 1.5.4 this raised
+        # BioMapperConfigError before any request. Keyless by default makes it work.
+        from tests.conftest import make_batch_entry, make_batch_response
+
+        monkeypatch.delenv("BIOMAPPER_API_KEY", raising=False)
+        route = respx.post("https://biomapper.expertintheloop.io/api/v1/map/batch").mock(
+            return_value=httpx.Response(
+                200, json=make_batch_response([make_batch_entry("L-Histidine")])
+            )
+        )
+        result = map_entity("L-Histidine")
+        assert result.query_name == "L-Histidine"
+        assert route.called
+        assert "x-api-key" not in route.calls[0].request.headers
