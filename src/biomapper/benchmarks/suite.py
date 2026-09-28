@@ -452,6 +452,10 @@ def _suite_readme(manifest: dict[str, Any]) -> str:
     ]
     for entry in manifest["datasets"]:
         circ = (manifest["circularity"].get(entry["dataset"], {}) or {}).get("label", "")
+        if entry["status"] == "skipped":
+            # A skipped arm measured nothing, so it has no claim to label. Printing the arm's
+            # circularity verdict here read as if a skipped arm had an accuracy_candidate result.
+            circ = ""
         declared = entry.get("role") or ""
         flag = " **(disagrees)**" if circ and declared and circ != declared else ""
         note = entry.get("reason") or entry.get("error") or ""

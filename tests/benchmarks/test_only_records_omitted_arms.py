@@ -16,6 +16,7 @@ import pytest
 
 from biomapper.benchmarks import cli
 from biomapper.benchmarks.config import SUITE_DATASETS, SUITE_SKIPPED
+from biomapper.benchmarks.sources import SourceUnavailable
 from biomapper.benchmarks.suite import OmittedArmWithoutReason, resolve_omissions, run_suite
 
 ANNOTATOR_RECORD = {
@@ -176,3 +177,30 @@ def test_cli_single_arm_records_the_invocation_as_the_reason(captured, tmp_path)
     skipped = {d["dataset"]: d for d in manifest["datasets"] if d.get("skip_origin") == "operator"}
     assert set(skipped) == set(SUITE_DATASETS) - {"refmet"}
     assert all("single-arm invocation (`arm refmet`)" in d["reason"] for d in skipped.values())
+
+
+def test_a_skipped_row_carries_no_label(tmp_path):
+    """The 2026-09-27 README labelled skipped SwissLipids `accuracy_candidate`, with no data.
+
+    SwissLipids was SELECTED and then skipped at runtime (SourceUnavailable), so the run's
+    circularity register held a verdict for it. That is the case that leaked a label.
+    """
+
+    def unavailable(**_kwargs):  # noqa: ANN003
+        raise SourceUnavailable("swisslipids", "dead-but-200 source")
+
+    run_suite(
+        out_dir=tmp_path,
+        datasets=list(SUITE_DATASETS),
+        probe_live=False,
+        runners={
+            **{k: _ok_runner(k) for k in SUITE_DATASETS},
+            "swisslipids": unavailable,
+        },
+    )
+    row = next(
+        line
+        for line in (tmp_path / "README.md").read_text().splitlines()
+        if line.startswith("| swisslipids |")
+    )
+    assert row.startswith("| swisslipids | skipped | n/a | n/a | n/a |")
