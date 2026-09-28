@@ -33,6 +33,7 @@ import pandas as pd
 
 from biomapper.benchmarks import sources
 from biomapper.benchmarks.api_mapper import ApiMapper
+from biomapper.benchmarks.checkpoint import EntityCache
 from biomapper.benchmarks.config import (
     HAJJAR,
     HGNC,
@@ -374,6 +375,14 @@ def run_metaboliteannotator(
 
     Every target vocab runs and the passes are unioned — a name is a hit if it resolves in ANY of
     CHEBI/HMDB/PubChem/KEGG — so scoring the CHEBI pass alone would under-count.
+
+    Resumable. This is the suite's longest arm (4,314 names per ion mode x 4 vocab passes x 2
+    modes, measured at 3.31 s/entity, about 31.7 h), so each ion mode keeps an
+    :class:`~biomapper.benchmarks.checkpoint.EntityCache` in its directory. Every batch is
+    committed to disk before the next request, and a re-run into the SAME suite dir
+    (``--out <that dir>``) sends only the entities not yet answered. A completed vocab pass
+    re-assembles entirely from cache with zero requests. The cache is pinned to the build: a
+    resume against a different KG commit is refused, not mixed in.
     """
     from biomapper.benchmarks.adapters.metaboliteannotator import load_metaboliteannotator
     from biomapper.benchmarks.scorers.name_hit_scorer import merge_vocab_runs, score_name_hit
@@ -384,6 +393,14 @@ def run_metaboliteannotator(
     for key, config in NAME_HIT_REGISTRY.items():
         mode_dir = out_dir / config.mode
         try:
+            mapper.cache = _resume_cache(mode_dir, provenance, entity_type=config.entity_type)
+            if mapper.cache is not None and mapper.cache.loaded_from_disk:
+                logger.info(
+                    "MetaboliteAnnotator %s: resuming with %d cached entities from %s",
+                    config.mode,
+                    mapper.cache.loaded_from_disk,
+                    mapper.cache.path,
+                )
             bundle = load_metaboliteannotator(config.accessions, config)
             _write(mode_dir / "dataset_card.json", bundle.card)
             runs = run_all(
@@ -408,6 +425,9 @@ def run_metaboliteannotator(
         except Exception as exc:  # noqa: BLE001 — one ion mode failing must not hide the other
             logger.warning("MetaboliteAnnotator mode %s failed: %s", config.mode, exc)
             arm_status[key] = f"failed: {type(exc).__name__}: {exc}"
+        finally:
+            # The mapper is per arm, but one mode's cache must never answer the other's names.
+            mapper.cache = None
     if not entries:
         raise RuntimeError(f"both MetaboliteAnnotator ion modes failed: {arm_status}")
     _write(out_dir / "results.json", {"entries": entries, "arm_status": arm_status})
@@ -418,6 +438,38 @@ def run_metaboliteannotator(
         "results": {"entries": entries},
         "arm_status": arm_status,
     }
+
+
+def _resume_cache(
+    directory: Path, provenance: RunProvenance, *, entity_type: str
+) -> EntityCache | None:
+    """An entity cache pinned to this run's build, or ``None`` when the build is unknown.
+
+    Unpinned provenance records ``unknown`` for the KG commit, and two unknowns compare equal, so a
+    cache keyed on them could resume a run across two different builds without noticing. Running
+    without a cache is slower; mixing builds is wrong. Take the slower path.
+    """
+    if not provenance.pinned:
+        logger.warning(
+            "provenance is unpinned (%s); running %s WITHOUT a resume cache, because a cache "
+            "cannot verify which build its answers came from.",
+            provenance.health_error,
+            directory,
+        )
+        return None
+    kg = provenance.kg_build
+    return EntityCache(
+        directory,
+        pin={
+            "api_endpoint": provenance.api_endpoint,
+            "kestrel_version": provenance.kestrel_version,
+            "kg_version": kg.kg_version,
+            "kg_git_commit": kg.git_commit,
+            "entity_type": entity_type,
+            # run_all sends every name-hit pass with annotation_mode="all".
+            "annotation_mode": "all",
+        },
+    )
 
 
 # --------------------------------------------------------------------------------------------------

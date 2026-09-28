@@ -43,6 +43,8 @@ from typing import Any
 
 import pandas as pd
 
+from biomapper.benchmarks.checkpoint import EntityCache, cache_key
+from biomapper.benchmarks.pacing import Pacer
 from biomapper.client import BioMapperClient
 from biomapper.exceptions import BioMapperRateLimitError, BioMapperServerError
 from biomapper.models import MappingResult
@@ -148,6 +150,9 @@ class RequestCounters:
     server_errors: int = 0
     rate_limited: int = 0
     failed_entities: int = 0
+    # Entities answered from a resume cache. Kept out of ``entities`` and ``seconds`` so the
+    # throughput figure describes the deployment, not how much of the work was already on disk.
+    cache_hits: int = 0
     seconds: float = 0.0
     errors: list[str] = field(default_factory=list)
 
@@ -159,6 +164,7 @@ class RequestCounters:
             "server_errors": self.server_errors,
             "rate_limited": self.rate_limited,
             "failed_entities": self.failed_entities,
+            "cache_hits": self.cache_hits,
             "seconds": round(self.seconds, 2),
             "entities_per_second": round(self.entities / self.seconds, 3) if self.seconds else None,
             "errors": self.errors[:20],
@@ -175,6 +181,12 @@ class ApiMapper:
         max_retries: Attempts per batch before its rows are recorded as errors. The public
             KRAKEN host returned 5xx under load during the 2026-08-05 suite run, so a batch
             retries with backoff; an arm that still fails is reported, never dropped.
+        pacer: Optional :class:`~biomapper.benchmarks.pacing.Pacer`. Waited on immediately before
+            every outgoing ``/map/batch`` request, including retries, and NEVER for an entity
+            answered from ``cache`` (PR #9's rule: pace the request path, not cache hits).
+        cache: Optional :class:`~biomapper.benchmarks.checkpoint.EntityCache`. Entities already in
+            it are not sent; every batch's successful results are committed to it durably before
+            the next request, so a killed run resumes from the last completed batch.
     """
 
     def __init__(
@@ -186,6 +198,8 @@ class ApiMapper:
         max_retries: int = DEFAULT_MAX_RETRIES,
         backoff_s: float = DEFAULT_BACKOFF_S,
         timeout: float = 900.0,
+        pacer: Pacer | None = None,
+        cache: EntityCache | None = None,
     ) -> None:
         self.endpoint = endpoint.rstrip("/")
         self._api_key = api_key
@@ -194,6 +208,8 @@ class ApiMapper:
         self.backoff_s = backoff_s
         self.timeout = timeout
         self.counters = RequestCounters()
+        self.pacer = pacer
+        self.cache = cache
 
     # ------------------------------------------------------------------
     # The Mapper-compatible entry point
@@ -337,15 +353,28 @@ class ApiMapper:
         else:
             client_kwargs["anonymous"] = True
 
-        results: list[MappingResult] = []
+        # Positional slots, so cache hits and fresh answers reassemble in input order. The gold is
+        # joined BY POSITION downstream, so order is load-bearing here.
+        results: list[MappingResult | None] = [None] * len(records)
+        keys = [cache_key(r["name"], vocab, r["identifiers"]) for r in records]
+        pending: list[int] = []
+        for index, key in enumerate(keys):
+            hit = self.cache.get(key) if self.cache is not None else None
+            if hit is not None:
+                results[index] = hit
+            else:
+                pending.append(index)
+        self.counters.cache_hits += len(records) - len(pending)
+
+        n_batches = -(-len(pending) // self.batch_size) if pending else 0
         started = time.monotonic()
-        async with BioMapperClient(**client_kwargs) as client:
-            for i in range(0, len(records), self.batch_size):
-                chunk = records[i : i + self.batch_size]
-                results.extend(
-                    await self._map_chunk(
+        if pending:
+            async with BioMapperClient(**client_kwargs) as client:
+                for batch_index, i in enumerate(range(0, len(pending), self.batch_size)):
+                    slots = pending[i : i + self.batch_size]
+                    answered = await self._map_chunk(
                         client,
-                        chunk,
+                        [records[s] for s in slots],
                         entity_type=entity_type,
                         annotation_mode=annotation_mode,
                         annotators=annotators,
@@ -354,15 +383,37 @@ class ApiMapper:
                         prefer_human=prefer_human,
                         candidate_limit=candidate_limit,
                     )
-                )
+                    if len(answered) != len(slots):  # pragma: no cover - invariant guard
+                        raise RuntimeError(
+                            f"batch returned {len(answered)} results for {len(slots)} records; "
+                            f"refusing to align gold columns against misaligned predictions."
+                        )
+                    for slot, result in zip(slots, answered, strict=True):
+                        results[slot] = result
+                    if self.cache is not None:
+                        self.cache.commit_batch(
+                            vocab=vocab,
+                            batch_index=batch_index,
+                            keyed_results=[
+                                (keys[s], r) for s, r in zip(slots, answered, strict=True)
+                            ],
+                        )
+                        self.cache.record_progress(
+                            vocab,
+                            batches_done=batch_index + 1,
+                            n_batches=n_batches,
+                            total=len(records),
+                        )
+        elif self.cache is not None:
+            self.cache.record_progress(vocab, batches_done=0, n_batches=0, total=len(records))
         self.counters.seconds += time.monotonic() - started
-        self.counters.entities += len(records)
-        if len(results) != len(records):  # pragma: no cover - invariant guard
+        self.counters.entities += len(pending)
+        if any(r is None for r in results):  # pragma: no cover - invariant guard
             raise RuntimeError(
-                f"result/record length mismatch ({len(results)} vs {len(records)}); refusing to "
-                f"align gold columns against misaligned predictions."
+                "a record was neither answered nor cached; refusing to align gold columns against "
+                "misaligned predictions."
             )
-        return results
+        return [r for r in results if r is not None]
 
     async def _map_chunk(
         self,
@@ -389,6 +440,9 @@ class ApiMapper:
         last: list[MappingResult] = []
         for attempt in range(self.max_retries):
             self.counters.batches += 1
+            if self.pacer is not None:
+                # The request path only: cache hits never reach _map_chunk.
+                self.pacer.wait()
             try:
                 # The client warns (RuntimeWarning) when a returned entry's name does not match
                 # the one sent at that position, then carries on matching positionally. For a
