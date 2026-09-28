@@ -36,13 +36,6 @@ which versions reached the index; 1.5.0 and 1.5.1 are tagged *(not published)*.
 
 ---
 
-## Notebooks
-
-- [`notebooks/biomapper_tutorial.ipynb`](notebooks/biomapper_tutorial.ipynb): the harmonization protocol end to end, keyless and build-pinned: resolve two cohort panels, link them by identifier-only CURIE sets, and read a certified and a refused structural certificate.
-- [`notebooks/monti_overlap_benchmark.ipynb`](notebooks/monti_overlap_benchmark.ipynb): BioMapper vs Monti et al. 2026 on the NECS cross-cohort overlap, as linked-count coverage for four cohorts plus a structural certification of the NECS to Arivale links, replayed from a pinned run with a small live check.
-
----
-
 ## Getting an API key
 
 The BioMapper2 API requires an API key. To request access, email
@@ -277,8 +270,11 @@ from biomapper import map_entities
 results = map_entities([{"name": "L-Histidine"}], progress=True)
 ```
 
-The worked notebooks are listed under [Notebooks](#notebooks). Both run against a keyless
-deployment, so no API key is needed, and both print the exact KRAKEN build that answered.
+`notebooks/biomapper_tutorial.ipynb` is the worked end-to-end walkthrough of the harmonization
+protocol: pin the backend build from `/health`, resolve two cohort panels, link them by
+identifier-only CURIE-set intersection, and read one certified and one refused structural
+certificate. It runs against a keyless deployment, so no API key is needed, and its saved outputs
+name the exact KRAKEN build that produced them.
 
 Note that the keyless path currently requires `BioMapperClient(anonymous=True)` directly. The
 synchronous wrappers (`map_entity`, `map_entities`, `map_dataset_file_sync`, `list_annotators`,
