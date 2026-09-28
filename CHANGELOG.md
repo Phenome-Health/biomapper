@@ -5,6 +5,32 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **MetaboliteAnnotator is resumable.** The arm is 4,314 names per ion mode across four vocab
+  passes and two modes, 34,512 API entities, measured at 3.31 s/entity (about 31.7 h). The
+  2026-09-26 run spent 11.9 h on the positive mode, was terminated, and kept nothing, because
+  results reached disk only when a whole vocab pass finished. Each ion mode now keeps an
+  `entity_cache.jsonl` in its directory: after every `/map/batch` response the batch's successful
+  results are appended and fsynced before the next request, so that line is the durable checkpoint
+  for `(ion_mode, vocab, batch)` and a kill loses at most the batch in flight. Re-running into the
+  same suite dir (`--out <dir>`) looks every entity up by name + target vocab and sends only the
+  misses; a completed pass re-assembles with zero requests and a byte-identical scored frame.
+  Committing a key twice is a no-op. Errors are never cached, so a transient outage is retried on
+  resume rather than frozen into a miss. The cache is pinned to the backend (endpoint, Kestrel
+  service, KG version and commit, entity type, annotation mode) and a resume against a different
+  build is refused rather than mixed in; with unpinned provenance the arm runs without a cache,
+  because `unknown == unknown` cannot tell two builds apart. A torn final line from a kill
+  mid-write is dropped; a corrupt earlier line is refused. `checkpoint.json` beside the cache
+  summarizes per-vocab progress for monitoring.
+
+  `ApiMapper` gains optional `cache=` and `pacer=` arguments. Pacing follows PR #9: the pacer is
+  waited on immediately before every outgoing request, retries included, and never for an entity
+  answered from cache. `request_counters` gains `cache_hits`, kept out of `entities` and `seconds`
+  so the throughput figure describes the deployment rather than how much work was already on disk.
+  `raw_response` and `kestrel_results` are not cached (neither is read by the scored surface, and
+  `raw_response` alone would add hundreds of MB).
+
 ### Changed
 
 - **The suite now names which structure figure is the published "strict" one.** Hajjar-100 scores
