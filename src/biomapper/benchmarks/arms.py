@@ -24,6 +24,7 @@ Failure discipline, which the suite relies on:
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 from pathlib import Path
@@ -51,7 +52,7 @@ from biomapper.benchmarks.config import (
 from biomapper.benchmarks.oracle import ApiStructureOracle, NodeNameResolver
 from biomapper.benchmarks.provenance import UNKNOWN, RunProvenance
 from biomapper.benchmarks.runner import VocabRun, run_all, run_provided_id, run_vocab
-from biomapper.benchmarks.scorers.curie_scorer import score_curie
+from biomapper.benchmarks.scorers.curie_scorer import score_curie, score_curie_per_target_run
 from biomapper.benchmarks.scorers.structure_oracle_scorer import (
     neutralize_first_block,
     score_structure_oracle,
@@ -307,6 +308,25 @@ def run_necs(
 # --------------------------------------------------------------------------------------------------
 
 
+def _score_hgnc_per_target_run(runs: dict[str, VocabRun]) -> dict[str, Any]:
+    """Score each HGNC namespace from its own target-vocab run, recording which file each used."""
+    require_complete_union(runs, key=HGNC.key, target_vocabs=HGNC.target_vocabs)
+    frames: dict[str, pd.DataFrame] = {}
+    run_sources: dict[str, dict[str, Any]] = {}
+    for namespace, _column in HGNC.gold_curie_columns:
+        run = runs.get(namespace)
+        tsv = run.output_tsv if run is not None else None
+        if tsv is None:
+            # A missing pass is refused downstream too; say which one here.
+            raise IncompleteUnionError(f"{HGNC.key}: no mapped output for target {namespace!r}.")
+        frames[namespace] = pd.read_csv(tsv, sep="\t")
+        run_sources[namespace] = {
+            "source_tsv": str(tsv),
+            "source_tsv_sha256": hashlib.sha256(Path(tsv).read_bytes()).hexdigest(),
+        }
+    return score_curie_per_target_run(frames, HGNC, sources=run_sources)
+
+
 def run_hgnc(
     *, mapper: ApiMapper, out_dir: Path, provenance: RunProvenance, kestrel_url: str
 ) -> dict[str, Any]:
@@ -339,7 +359,15 @@ def run_hgnc(
         source_provenance={"source_url": HGNC.source_url, "source_version": source_version},
     )
     primary, mapped_df = _primary_run(runs, HGNC)
+    # The any-namespace roll-up, coverage and per_row stay on the primary run (non-quotable,
+    # kept for continuity). The per-namespace figures are then REPLACED with ones scored from
+    # each namespace's own run, because node selection is steered by the target vocab.
     result = score_curie(mapped_df, HGNC, vocab=primary)
+    result["rollup_source_vocab_run"] = primary
+    # per_row is row-level evidence for the primary run only; the per-namespace figures for the
+    # other namespaces are verified against their own runs' TSVs (source_tsv in each entry).
+    result["per_row_source_vocab_run"] = primary
+    result.update(_score_hgnc_per_target_run(runs))
     if not any(
         (entry.get("scored_denominator") or 0) > 0
         for entry in result["per_namespace_accuracy"].values()

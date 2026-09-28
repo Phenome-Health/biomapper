@@ -5,11 +5,10 @@ BioMapper's *assigned* cross-reference CURIEs and the backbone's authoritative h
 cross-refs. This mirrors the mapper's own ``analysis.py`` "assigned-vs-provided" semantics
 (``_calculate_precision/_recall/_f1``), applied to the held-out gold instead of a provided id.
 
-Per the Hajjar calibration (``chosen_kg_id`` is annotation-driven, not vocab-steered), ONE
-accuracy number is reported per dataset — the CURIE match is taken across ALL of the backbone's
-target namespaces at once (a per-namespace breakdown is retained for traceability only, never
-plotted). BioMapper's predicted CURIEs are drawn from ``chosen_kg_id`` plus its
-``kg_equivalent_ids`` (any namespace); the gold restricts the comparison to the target
+``chosen_kg_id`` IS vocab-steered: the same query can resolve to a different node in each target
+vocab's run. A multi-run arm must therefore score each namespace from its own run
+(``score_curie_per_target_run``); ``score_curie`` scores a single run. BioMapper's predicted
+CURIEs are drawn from ``chosen_kg_id`` plus its ``kg_equivalent_ids`` (any namespace); the gold restricts the comparison to the target
 namespaces, so the source-namespace query id can never trivially self-match.
 """
 
@@ -298,4 +297,120 @@ def score_curie(mapped_df: pd.DataFrame, config: CurieDatasetConfig, vocab: str 
         },
         "per_namespace": per_namespace,
         "per_row": per_row,
+    }
+
+
+class MissingTargetRunError(ValueError):
+    """A target namespace has no mapped frame of its own, so it cannot be scored honestly."""
+
+
+def _namespace_prefix(namespace: str) -> str:
+    """The canonical upper-cased prefix a predicted CURIE in ``namespace`` carries."""
+    return canonical_prefix(namespace.strip().upper())
+
+
+def score_curie_per_target_run(
+    mapped_by_vocab: dict[str, pd.DataFrame],
+    config: CurieDatasetConfig,
+    sources: dict[str, dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Per-namespace accuracy where each namespace is scored from ITS OWN target-vocab run.
+
+    The mapper is run once per target vocab, and node selection is conditioned on that vocab: the
+    same symbol can resolve to a different node in the Ensembl pass than in the NCBIGene pass.
+    Reading every namespace's cross-refs off one pass therefore measures that pass, not the
+    requested mapping (the 2026-09 HGNC "NCBIGene fell" inversion). Here namespace ``ns`` is
+    scored only against ``mapped_by_vocab[ns]``, and each figure records which run it came from.
+
+    Also emits a FORCED-HIT diagnostic per namespace (diagnostic only, never a headline): rows
+    whose gold carries no id in the target namespace but where the run returned one anyway, and,
+    where another gold namespace makes it checkable, how many of those resolved to the wrong gene.
+    The accuracy denominator excludes such rows by construction, so without this count a wrong
+    answer on them is invisible.
+
+    ``sources`` optionally maps each namespace to provenance for its run (e.g. output TSV path
+    and SHA-256), copied verbatim into that namespace's entry.
+    """
+    sources = sources or {}
+    missing = [ns for ns, _ in config.gold_curie_columns if ns not in mapped_by_vocab]
+    if missing:
+        raise MissingTargetRunError(
+            f"{config.key}: no mapped run for target namespace(s) {missing}. Each namespace must be "
+            f"scored from its own run; refusing to borrow another namespace's resolutions."
+        )
+
+    per_namespace_accuracy: dict[str, dict[str, Any]] = {}
+    forced_hits: dict[str, dict[str, Any]] = {}
+    for namespace, column in config.gold_curie_columns:
+        frame = mapped_by_vocab[namespace]
+        prefix = _namespace_prefix(namespace)
+        other_columns = [c for ns, c in config.gold_curie_columns if ns != namespace]
+        scored = correct = n_covered = 0
+        no_gold = forced = checkable = wrong_gene = 0
+        for _, row in frame.iterrows():
+            preds = predicted_curies(row)
+            # One predicate for coverage and forced hits: the run returned an id IN the target
+            # namespace (same prefix normalization as the gold). An HGNC- or other-namespace-only
+            # answer does not cover the target.
+            has_target_id = any(p.split(":", 1)[0] == prefix for p in preds)
+            n_covered += has_target_id
+            ns_gold = _split_curies(row.get(column))
+            if ns_gold:
+                scored += 1
+                correct += bool(preds & ns_gold)
+                continue
+            no_gold += 1
+            if not has_target_id:
+                continue
+            forced += 1
+            other_gold: set[str] = set()
+            for c in other_columns:
+                other_gold |= _split_curies(row.get(c))
+            if other_gold:
+                checkable += 1
+                wrong_gene += not (preds & other_gold)
+        per_namespace_accuracy[namespace] = {
+            "metric": "top1_accuracy",
+            "top1_accuracy": (correct / scored) if scored else None,
+            "correct": correct,
+            "scored_denominator": scored,
+            "n_rows": len(frame),
+            # This run's own TARGET-namespace coverage: rows where it returned >=1 id in this
+            # namespace. It includes the forced hits (rows with no target gold that still got a
+            # target id), so covered_with_target_gold = n_predicted - forced hits.
+            "coverage": {
+                "definition": "rows with >=1 predicted id in the target namespace, own run",
+                "n_predicted": n_covered,
+                "total": len(frame),
+                "fraction": (n_covered / len(frame)) if len(frame) else 0.0,
+                "of_which_forced_hits": forced,
+            },
+            "source_vocab_run": namespace,
+            **sources.get(namespace, {}),
+        }
+        forced_hits[namespace] = {
+            "rows_without_target_gold": no_gold,
+            "returned_target_id_anyway": forced,
+            "checkable_against_other_gold": checkable,
+            "wrong_gene_where_checkable": wrong_gene,
+            "source_vocab_run": namespace,
+        }
+
+    return {
+        "reportable_metric": "per_namespace_accuracy",
+        "per_namespace_accuracy": per_namespace_accuracy,
+        "per_namespace": {
+            ns: {"correct": v["correct"], "scored": v["scored_denominator"]}
+            for ns, v in per_namespace_accuracy.items()
+        },
+        "per_namespace_scoring": "own_target_run",
+        "forced_hit_diagnostic": {
+            "diagnostic_only": True,
+            "note": (
+                "rows whose gold has no id in the target namespace but the run returned one; "
+                "'wrong_gene_where_checkable' uses the row's gold in the other namespaces. Not an "
+                "accuracy figure and not in any denominator."
+            ),
+            "per_namespace": forced_hits,
+        },
     }

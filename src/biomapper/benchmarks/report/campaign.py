@@ -3,9 +3,11 @@
 Distinct from ``assemble.py`` (the Hajjar internal report) in three ways, each a Hajjar
 calibration learning folded in:
 
-  1. **One accuracy number per dataset, no per-vocab axis.** The Hajjar run proved
-     ``chosen_kg_id`` is annotation-driven, not vocab-steered, so a per-vocab heatmap is
-     uninformative. Each dataset contributes exactly one headline accuracy.
+  1. **Gene/protein accuracy is per target namespace.** ``chosen_kg_id`` IS vocab-steered (from
+     the 2026-09-24 suite on, the same symbol can resolve to a different node in each target
+     vocab's run), so each namespace's accuracy and coverage come from that namespace's own run.
+     The any-namespace roll-up is non-quotable and is not printed when per-namespace figures
+     exist. Metabolite datasets contribute one strict headline each.
   2. **Two arms, two correctness rules.** Metabolite (NECS) uses the structure oracle and
      reports BOTH the strict InChIKey-first-block accuracy AND the charge/protonation-normalized
      accuracy. Gene/protein (backbones) uses CURIE equality (Top-1 + coverage/precision/recall/F1).
@@ -30,8 +32,8 @@ CAMPAIGN_FRAMING = (
     "Deferred follow-on to the Hajjar vertical slice. Metabolite arm (NECS) is scored by the "
     "independent InChIKey structure oracle (strict + charge-normalized); the gene/protein arm "
     "(HGNC / UniProt idmapping / NCBI gene2ensembl) is scored by CURIE equality against each "
-    "backbone's authoritative held-out cross-references. ONE accuracy number per dataset (no "
-    "per-vocab axis). No competitor comparison exists for these sets, so none is drawn."
+    "backbone's authoritative held-out cross-references, reported per target namespace (the "
+    "any-namespace roll-up is not quotable). No competitor comparison exists for these sets, so none is drawn."
 )
 
 
@@ -154,6 +156,27 @@ def _metabolite_row(entry: dict[str, Any]) -> str:
 
 
 def _curie_row(entry: dict[str, Any]) -> str:
+    """Table row(s) for a gene/protein entry: one per target namespace when the result has them.
+
+    The any-namespace ``comparable_core`` is non-quotable, so it is only printed for a result that
+    predates per-namespace scoring. Precision/recall/F1 are derived from that roll-up, so they are
+    not repeated on the per-namespace rows.
+    """
+    per_ns = entry["result"].get("per_namespace_accuracy")
+    if isinstance(per_ns, dict) and per_ns:
+        # Coverage must come from the same run as the accuracy beside it. A per-target-run result
+        # carries it per namespace; a single-run result has one run, so its top-level coverage is
+        # that run's by construction.
+        shared = entry["result"]["coverage"]
+        rows = []
+        for ns, e in per_ns.items():
+            cov = e.get("coverage") or shared
+            rows.append(
+                f"| {entry['key']} ({ns}) | {entry.get('arm', 'gene/protein')} | "
+                f"{_pct(e.get('top1_accuracy'))} | {e.get('scored_denominator')} | "
+                f"{cov['n_predicted']}/{cov['total']} | n/a | n/a | n/a |"
+            )
+        return "\n".join(rows)
     core = entry["result"]["comparable_core"]
     stats = entry["result"].get("curie_stats", {})
     cov = entry["result"]["coverage"]
@@ -236,7 +259,7 @@ def assemble_campaign_report(
             lines.append("")
 
     if curie_entries:
-        lines.append("## Gene/protein arm — CURIE-equality accuracy (one number per dataset)")
+        lines.append("## Gene/protein arm — CURIE-equality accuracy (per target namespace)")
         lines.append("")
         lines.append(
             "| Dataset | Arm | Top-1 accuracy | Scored n | Coverage | Precision | Recall | F1 |"
@@ -273,7 +296,8 @@ def assemble_campaign_report(
         "- No published same-set competitor exists for NECS or the backbones — no competitor figure is drawn."
     )
     lines.append(
-        "- Per-vocab breakdown is intentionally omitted (annotation-driven, not vocab-steered)."
+        "- Gene/protein rows are per target namespace: node selection is vocab-steered, so each "
+        "namespace's accuracy and coverage are read from its own target-vocab run."
     )
     lines.append(f"- Reconciliation passed: {integrity.get('reconciliation_passed')}")
     lines.append(f"- Validation passed: {integrity.get('validation_passed')}")
