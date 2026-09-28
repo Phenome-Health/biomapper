@@ -345,10 +345,11 @@ def score_curie_per_target_run(
         frame = mapped_by_vocab[namespace]
         prefix = _namespace_prefix(namespace)
         other_columns = [c for ns, c in config.gold_curie_columns if ns != namespace]
-        scored = correct = 0
+        scored = correct = n_predicted = 0
         no_gold = forced = checkable = wrong_gene = 0
         for _, row in frame.iterrows():
             preds = predicted_curies(row)
+            n_predicted += bool(preds)
             ns_gold = _split_curies(row.get(column))
             if ns_gold:
                 scored += 1
@@ -370,6 +371,12 @@ def score_curie_per_target_run(
             "correct": correct,
             "scored_denominator": scored,
             "n_rows": len(frame),
+            # This run's own coverage, so it is never read off another namespace's run.
+            "coverage": {
+                "n_predicted": n_predicted,
+                "total": len(frame),
+                "fraction": (n_predicted / len(frame)) if len(frame) else 0.0,
+            },
             "source_vocab_run": namespace,
             **sources.get(namespace, {}),
         }

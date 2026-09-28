@@ -171,3 +171,21 @@ def test_campaign_report_prints_per_namespace_rows_not_the_rollup():
         f"| {HGNC.key} (NCBIGene) | gene | 100.0% | 3 | 3/3 | n/a | n/a | n/a |",
         f"| {HGNC.key} (UniProtKB) | gene | 100.0% | 1 | 3/3 | n/a | n/a | n/a |",
     ]
+
+
+def test_coverage_is_read_from_each_namespace_s_own_run():
+    """A run that predicts fewer rows must report its own coverage, not the Ensembl run's."""
+    from biomapper.benchmarks.report.campaign import _curie_row
+
+    frames = {v: _mapped(v) for v in HGNC.target_vocabs}
+    uni = frames["UniProtKB"]
+    uni.loc[uni[HGNC.name_column] == "TRX-ABC1-1", ["chosen_kg_id", "kg_equivalent_ids"]] = ""
+    result = score_curie_per_target_run(frames, HGNC)
+    per_ns = result["per_namespace_accuracy"]
+    assert per_ns["ENSEMBL"]["coverage"]["n_predicted"] == 3
+    assert per_ns["UniProtKB"]["coverage"] == {"n_predicted": 2, "total": 3, "fraction": 2 / 3}
+    # The Ensembl run's coverage sits at the top level; the report must not borrow it.
+    result["coverage"] = {"n_predicted": 3, "total": 3}
+    lines = _curie_row({"key": HGNC.key, "arm": "gene", "result": result}).split("\n")
+    assert lines[0].endswith("| 3/3 | n/a | n/a | n/a |")
+    assert lines[2] == f"| {HGNC.key} (UniProtKB) | gene | 100.0% | 1 | 2/3 | n/a | n/a | n/a |"
