@@ -14,8 +14,8 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   (`acetylcarnitine (c2)` vs `acetylcarnitine (C2)` resolved to HMDB:HMDB0000201 and RM:0154009
   with no shared identifier). This reverses the earlier "identifier-set intersection, never string
   matching" rule. Exact matches after whitespace normalization always link; casefold-only matches
-  link unless the name is `NAME_CASEFOLD_MIN_LENGTH_EXCLUSIVE` (4) characters or shorter, in which
-  case the pair is listed in `HarmonizationResult.name_match_withheld` instead (Co vs CO). No fuzzy
+  link unless either name is `NAME_CASEFOLD_MIN_LENGTH_EXCLUSIVE` (4) characters or shorter, in
+  which case the pair is listed in `HarmonizationResult.name_match_withheld` instead (Co vs CO). No fuzzy
   or punctuation matching; unresolved and errored entities never link by name. **Opt-in** with
   `link_by_name=True` (default `False`, which reproduces identifier-only linking exactly), and
   currently intended for small-molecule / metabolite panels; other entity types are pending

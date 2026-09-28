@@ -178,3 +178,21 @@ def test_name_linking_is_off_by_default():
     )
     assert report.n_links == 0
     assert report.summary()["links_by_basis"]["name_casefold"] == 0
+
+
+def test_structure_only_chosen_node_never_links():
+    # Same chosen InChIKey node, no identifier-only CURIE: a structure hash must not form a link.
+    a = [_r("x", "INCHIKEY:WQZGKKKJIJFFOK-GASJEMHNSA-N")]
+    b = [_r("y", "INCHIKEY:WQZGKKKJIJFFOK-GASJEMHNSA-N")]
+    for report in (_harmonize(a, b), harmonize(a, b)):
+        assert report.n_links == 0
+        assert report.n_a_linked <= report.n_a_comparable
+
+
+@pytest.mark.parametrize("swap", [False, True])
+def test_short_name_rule_is_symmetric(swap):
+    # "Maße" (4) and "Masse" (5) casefold equal; the outcome must not depend on side order.
+    a, b = [_r("Maße", "X:1")], [_r("Masse", "X:2")]
+    report = harmonize(b, a) if swap else harmonize(a, b)
+    assert report.n_links == 0
+    assert len(report.name_match_withheld) == 1

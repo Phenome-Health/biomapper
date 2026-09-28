@@ -317,7 +317,7 @@ records which one as its `basis` (strongest first):
 
 | basis | rule |
 |---|---|
-| `node` | both resolved to the same chosen KRAKEN node |
+| `node` | their identifier-only CURIE sets intersect and both resolved to the same chosen node |
 | `identifier` | their identifier-only CURIE sets intersect, on different nodes |
 | `name_exact` | their names are equal after whitespace normalization |
 | `name_casefold` | their names are equal only after casefold (see the short-name rule below) |
@@ -331,11 +331,12 @@ case-sensitive naming conventions (gene and protein symbols, for example). Rules
   candidate. Names are compared on `query_name`, even when you pass a custom `key=`; links are
   reported under the keys.
 - No fuzzy matching and no punctuation stripping, only whitespace normalization.
-- A **casefold-only** match on a name of `NAME_CASEFOLD_MIN_LENGTH_EXCLUSIVE` (4) characters or
-  fewer is **withheld**, not linked, and listed in `report.name_match_withheld` for review:
+- A **casefold-only** match where either name is `NAME_CASEFOLD_MIN_LENGTH_EXCLUSIVE` (4)
+  characters or fewer is **withheld**, not linked, and listed in `report.name_match_withheld` for review:
   `Co` (cobalt) and `CO` (carbon monoxide) are different things.
-- Linking happens within one `harmonize()` call, so within one entity type. A cross-type
-  collision such as cAMP (metabolite) vs CAMP (gene) cannot arise and is out of scope.
+- Pass results of **one entity type** per `harmonize()` call. The results carry no type to check,
+  so this is the caller's responsibility; a cross-type collision such as cAMP (metabolite) vs
+  CAMP (gene) is out of scope.
 - Off by default: `harmonize(...)` links by `node` and `identifier` only, exactly as before 1.5.5.
 
 `report.summary()` counts links by basis (`links_by_basis`) and reports `n_name_only_links` (links

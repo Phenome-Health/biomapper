@@ -367,7 +367,7 @@ def name_matches(
     Returns ``{(a_key, b_key): "name_exact" | "name_casefold"}`` plus the withheld short pairs.
 
     Exact means equal after whitespace normalization. A pair equal only after casefold links
-    unless the normalized name is NAME_CASEFOLD_MIN_LENGTH_EXCLUSIVE characters or shorter, in
+    unless either normalized name is NAME_CASEFOLD_MIN_LENGTH_EXCLUSIVE characters or shorter, in
     which case it is withheld. No fuzzy matching and no punctuation stripping.
     """
     by_fold: dict[str, list[str]] = defaultdict(list)
@@ -381,7 +381,9 @@ def name_matches(
             b_norm = normalize_name(b_names[b])
             if a_norm == b_norm:
                 matched[(a, b)] = "name_exact"
-            elif len(a_norm) <= NAME_CASEFOLD_MIN_LENGTH_EXCLUSIVE:
+            elif min(len(a_norm), len(b_norm)) <= NAME_CASEFOLD_MIN_LENGTH_EXCLUSIVE:
+                # Either side short withholds, so swapping the cohorts cannot change the outcome
+                # (casefold can change length: Maße and Masse casefold equal).
                 withheld.append((a, b))
             else:
                 matched[(a, b)] = "name_casefold"
@@ -401,19 +403,22 @@ def harmonize(
 
     Two entities link when any of these holds, strongest first (the link's ``basis``):
 
-    - ``node``: both resolved to the same chosen KRAKEN node;
+    - ``node``: their identifier-only CURIE sets intersect AND both resolved to the same chosen
+      node (a node label on an identifier link, never a link on its own, so a node in a structure
+      namespace cannot link anything);
     - ``identifier``: their identifier-only CURIE sets intersect (structure namespaces excluded);
     - ``name_exact``: their keys are equal after whitespace normalization;
-    - ``name_casefold``: their keys are equal only after casefold. When the normalized name is
-      ``NAME_CASEFOLD_MIN_LENGTH_EXCLUSIVE`` characters or shorter the pair is NOT linked and is
+    - ``name_casefold``: their names are equal only after casefold. When either normalized name
+      is ``NAME_CASEFOLD_MIN_LENGTH_EXCLUSIVE`` characters or shorter the pair is NOT linked and is
       listed in ``name_match_withheld`` instead (Co vs CO).
 
     Name matching applies to entities that resolved on both sides (an unresolved entity stays a
     refusal candidate), compares each result's ``query_name`` (a custom ``key`` such as
     ``"row_id|name"`` would otherwise never match), reports links under the usual keys, and does
-    no fuzzy or punctuation matching. It runs within one call, so within one
-    entity type: a collision across types, such as cAMP (metabolite) vs CAMP (the gene), cannot
-    arise here and is out of scope. This is a pure set operation over results you already have;
+    no fuzzy or punctuation matching. Pass results of ONE entity type per call: the results carry
+    no type for this function to check, so keeping types apart is the caller's responsibility,
+    and a cross-type name collision such as cAMP (metabolite) vs CAMP (the gene) is out of
+    scope. This is a pure set operation over results you already have;
     it issues no requests.
 
     Args:
@@ -451,14 +456,6 @@ def harmonize(
         bases[pair].add("identifier")
         if a_nodes.get(lk.a_key) is not None and a_nodes.get(lk.a_key) == b_nodes.get(lk.b_key):
             bases[pair].add("node")
-    # Same chosen node without a shared identifier-only CURIE (a node in a structure namespace,
-    # which curie_set excludes) is still a node link.
-    b_by_node: dict[str, list[str]] = defaultdict(list)
-    for b_key, node in b_nodes.items():
-        b_by_node[node].append(b_key)
-    for a_key, node in a_nodes.items():
-        for b_key in b_by_node.get(node, ()):
-            bases[(a_key, b_key)].add("node")
     withheld: list[tuple[str, str]] = []
     if link_by_name:
         resolved_a = {k: a_names[k] for k, c in a_curies.items() if c}
