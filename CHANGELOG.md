@@ -5,6 +5,8 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.5.4] - 2026-09-28
+
 ### Added
 
 - **MetaboliteAnnotator is resumable.** The arm is 4,314 names per ion mode across four vocab
@@ -20,9 +22,15 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   resume rather than frozen into a miss. The cache is pinned to the backend (endpoint, Kestrel
   service, KG version and commit, entity type, annotation mode) and a resume against a different
   build is refused rather than mixed in; with unpinned provenance the arm runs without a cache,
-  because `unknown == unknown` cannot tell two builds apart. A torn final line from a kill
+  because `unknown == unknown` cannot tell two builds apart, and the same holds when the KG
+  version is known but the KG commit is not. Request options (entity type, annotation mode,
+  annotators, candidate limit, the prefer_* flags) are folded into the cache key when set, so a
+  reused cache dir with different options misses. The cache is read as bytes, so a kill that
+  splits a multi-byte UTF-8 character is a torn tail, and a torn pin line is re-written before any
+  answer is cached. A torn final line from a kill
   mid-write is dropped; a corrupt earlier line is refused. `checkpoint.json` beside the cache
-  summarizes per-vocab progress for monitoring.
+  summarizes per-vocab progress for monitoring; `complete` means every entity is
+  answered, not merely that every batch was attempted.
 
   `ApiMapper` gains optional `cache=` and `pacer=` arguments. Pacing follows PR #9: the pacer is
   waited on immediately before every outgoing request, retries included, and never for an entity
@@ -30,34 +38,6 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   so the throughput figure describes the deployment rather than how much work was already on disk.
   `raw_response` and `kestrel_results` are not cached (neither is read by the scored surface, and
   `raw_response` alone would add hundreds of MB).
-
-### Changed
-
-- **The suite now names which structure figure is the published "strict" one.** Hajjar-100 scores
-  92/100 on the KG record alone and 95/100 when an external Metabolomics Workbench or PubChem
-  lookup on the node's NAME is allowed to fill in a structure-less node. The suite reported the
-  second as `comparable_core`, its headline, while the independence audit defined published strict
-  as the first. Both were emitted under the metric name `top1_accuracy`, so nothing in the artifact
-  told a reader which definition they were holding, and quoting the headline as "strict" silently
-  changed the metric between documents.
-
-  `comparable_core_strict_kg_only` is new and is the published strict figure (decided 2026-09-23).
-  It is computed in-run rather than derived by hand from `per_row`. Verified against the real
-  2026-09-24 Hajjar artifact: 92/100, against `comparable_core` 95/100 and equivalence-set 95/100.
-
-  Every variant now carries a `definition` string and an `is_published_strict` boolean, the metric
-  names are distinct (`top1_accuracy_strict_kg_only` against `top1_accuracy_with_name_fallback`),
-  and a test asserts exactly one variant claims to be the published strict figure. Nothing is
-  removed: `comparable_core` keeps its key and its value, so existing readers are unaffected.
-
-  For an artifact written before that field existed, the campaign report RECOMPUTES the strict
-  figure from `per_row` (correct and not `needed_fallback`) rather than substituting
-  `comparable_core`. Substituting it would print the name-fallback number under a "Top-1 (strict)"
-  heading, which is the confusion being fixed. Where neither the field nor `per_row` is available
-  the cell reads `n/a (strict not in artifact)`: a blank cell reads as zero, and a wrong number
-  under a strict heading is unrecoverable. Verified on the real 2026-09-25 Hajjar artifact, which
-  predates the field: recomputation returns 92/100, matching the hand-derived figure, against a
-  stored `comparable_core` of 95/100.
 
 ### Fixed
 
@@ -73,13 +53,47 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   rule for library callers. The manifest gains `full_suite` and `operator_skipped`, and the README
   states `Scope: SUBSET` when arms were left out: a subset run can be `complete` and still not be
   the full benchmark. `arm NAME` records the invocation itself as the reason for the other arms.
+  A skipped arm no longer carries a label in the README (the 2026-09-27 run printed
+  `swisslipids | skipped | accuracy_candidate`), a scalar `--exclusions` file is an argparse error
+  rather than a traceback, and operator reasons are escaped so a `|` or newline cannot split a
+  README row.
 
-- **The run README no longer calls a coverage arm "accuracy".** The arm table resolved its label as
-  `role or circularity_label`, and `role` is a static config field that DEFAULTS to `"accuracy"`.
-  The table therefore called RefMet accuracy while the same run's `circularity` register called it
-  coverage, on the one arm the July independence audit singled out as the at-risk case. The
-  per-run circularity label now wins, the declared role is shown beside it, and a disagreement is
-  flagged in the row rather than resolved silently in favour of the more flattering reading.
+- **A repeated arm runs once and is recorded once (#21).** `--only hgnc hgnc`, or any repeated name
+  passed to `run_suite`, ran the arm twice, wrote two manifest entries for it, and counted it twice
+  in `n_ok`. The selection is de-duplicated in `run_suite` (first occurrence wins, order kept), which
+  covers the library and the CLI. An arm named in both `--only` and `--skip` was already refused
+  before any network call; a test now pins that.
+
+- **Each HGNC namespace is scored from its own target-vocab run (#20).** `run_hgnc` maps once per
+  target vocab (ENSEMBL, NCBIGene, UniProtKB) but scored all three namespaces from the ENSEMBL run.
+  Since node selection became vocab-steered, the three runs agree on only 585 to 628 of 1500 rows,
+  so reading NCBIGene cross-refs off the Ensembl-steered pass produced the apparent NCBIGene
+  "inversion". New `score_curie_per_target_run` scores each namespace only from its own run and
+  records `source_vocab_run`, `source_tsv` and `source_tsv_sha256` per entry; a missing run is
+  refused (`MissingTargetRunError`), never borrowed. `per_namespace_scoring: "own_target_run"` marks
+  the new figures. The any-namespace roll-up stays on the primary run, still flagged non-quotable,
+  and is labelled `rollup_source_vocab_run`. A diagnostic-only `forced_hit_diagnostic` counts rows
+  where a namespace with no gold ID still returned one. Re-scored offline on
+  `suite_20260927T180639Z` (kg 2.3.0, git `3dd08a5b`): ENSEMBL 1343/1413 (95.0%), NCBIGene
+  1453/1475 (98.5%), UniProtKB 617/666 (92.6%).
+
+- **Cross-cohort PubChem lookups reach PubChem again, and legacy HMDB accessions resolve (#17).**
+  PubChem rejected urllib3's default TLS context with `503 PUGREST.ServerBusy` on every
+  certify/readjudicate request, while the stdlib context got 200. Three certification passes had
+  returned `blocks_resolved 0` and were misdiagnosed as an outage. Both PubChem callers now default
+  to `pubchem_session()`, which uses `ssl.create_default_context()`. Separately, 5-digit HMDB
+  accessions (`HMDB13127`) 404 in PubChem's RegistryID index and became false clean misses; the
+  certify route now tries the 7-digit form first, then the original. `cross_cohort_certify` gains
+  `--min-interval-s`. **This changes a published number:** on the kg 2.3.0 NECS/Arivale run,
+  certified over adjudicable moves from 74.3% (398/536) to 61.4% (452/736). All 146 newly refuted
+  links are lipid pairs linked across distinct species.
+
+### Documentation
+
+- The harmonization tutorial notebook was rewritten around `harmonize.link_by_intersection`,
+  keyless and build-pinned, and now declares a kernel that has biomapper installed, so a reader's
+  run cannot execute unpinned while printing pinned provenance (#16). Notebooks are not part of
+  the wheel.
 
 ## [1.5.3] - 2026-09-25
 
@@ -116,15 +130,12 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   reproduce the same symptom from a different cause and leave a config-only test green. Run against
   the real 1.5.2 wheel the checker reports all four extras as gating no requirements and exits 1.
 
-**Published to PyPI:** 0.1.0 through 1.4.0, and 1.5.2. Entries tagged *(not published)* were
-version bumps that landed in this repository but were never uploaded to the release index, so
-`pip install biomapper==<that version>` will not resolve. This matters for any claim about which
-release first contained a module: the source tree and the PyPI index diverge across the 1.5.x
-series.
-
-## [1.5.3] - 2026-09-25
-
-### Fixed
+- **The run README no longer calls a coverage arm "accuracy".** The arm table resolved its label as
+  `role or circularity_label`, and `role` is a static config field that DEFAULTS to `"accuracy"`.
+  The table therefore called RefMet accuracy while the same run's `circularity` register called it
+  coverage, on the one arm the July independence audit singled out as the at-risk case. The
+  per-run circularity label now wins, the declared role is shown beside it, and a disagreement is
+  flagged in the row rather than resolved silently in favour of the more flattering reading.
 
 - **`MONTI_PUBLISHED` reverted to the tabulated values.** 1.5.0 changed the published comparator from
   the paper's prose, moving Xu to 385 and BLSA to 188. Both moves were wrong. Two tabulated sources
@@ -149,7 +160,39 @@ series.
 
 ### Changed
 
+- **The suite now names which structure figure is the published "strict" one.** Hajjar-100 scores
+  92/100 on the KG record alone and 95/100 when an external Metabolomics Workbench or PubChem
+  lookup on the node's NAME is allowed to fill in a structure-less node. The suite reported the
+  second as `comparable_core`, its headline, while the independence audit defined published strict
+  as the first. Both were emitted under the metric name `top1_accuracy`, so nothing in the artifact
+  told a reader which definition they were holding, and quoting the headline as "strict" silently
+  changed the metric between documents.
+
+  `comparable_core_strict_kg_only` is new and is the published strict figure (decided 2026-09-23).
+  It is computed in-run rather than derived by hand from `per_row`. Verified against the real
+  2026-09-24 Hajjar artifact: 92/100, against `comparable_core` 95/100 and equivalence-set 95/100.
+
+  Every variant now carries a `definition` string and an `is_published_strict` boolean, the metric
+  names are distinct (`top1_accuracy_strict_kg_only` against `top1_accuracy_with_name_fallback`),
+  and a test asserts exactly one variant claims to be the published strict figure. Nothing is
+  removed: `comparable_core` keeps its key and its value, so existing readers are unaffected.
+
+  For an artifact written before that field existed, the campaign report RECOMPUTES the strict
+  figure from `per_row` (correct and not `needed_fallback`) rather than substituting
+  `comparable_core`. Substituting it would print the name-fallback number under a "Top-1 (strict)"
+  heading, which is the confusion being fixed. Where neither the field nor `per_row` is available
+  the cell reads `n/a (strict not in artifact)`: a blank cell reads as zero, and a wrong number
+  under a strict heading is unrecoverable. Verified on the real 2026-09-25 Hajjar artifact, which
+  predates the field: recomputation returns 92/100, matching the hand-derived figure, against a
+  stored `comparable_core` of 95/100.
+
 - Run manifests record `monti_s03_derived` per pair alongside the published overlap.
+
+**Published to PyPI:** 0.1.0 through 1.4.0, 1.5.2, and 1.5.3. Entries tagged *(not published)* were
+version bumps that landed in this repository but were never uploaded to the release index, so
+`pip install biomapper==<that version>` will not resolve. This matters for any claim about which
+release first contained a module: the source tree and the PyPI index diverge across the 1.5.x
+series.
 
 ## [1.5.2] - 2026-09-24
 
