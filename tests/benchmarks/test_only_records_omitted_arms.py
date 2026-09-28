@@ -204,3 +204,24 @@ def test_a_skipped_row_carries_no_label(tmp_path):
         if line.startswith("| swisslipids |")
     )
     assert row.startswith("| swisslipids | skipped | n/a | n/a | n/a |")
+
+
+@pytest.mark.parametrize("content", ["null", "5", '"text"'])
+def test_cli_a_scalar_exclusions_file_is_an_argparse_error(captured, tmp_path, content):
+    path = tmp_path / "excluded_arms.json"
+    path.write_text(content)
+    with pytest.raises(SystemExit) as excinfo:
+        cli.main(["all", "--exclusions", str(path)])
+    assert excinfo.value.code == 2
+    assert captured == {}
+
+
+def test_a_reason_with_pipes_and_newlines_stays_in_one_readme_row(tmp_path):
+    selected = [k for k in SUITE_DATASETS if k != "lmsd"]
+    _run(tmp_path, selected, {"lmsd": "slow | flaky\nsecond line"})
+    rows = [
+        line for line in (tmp_path / "README.md").read_text().splitlines() if "second line" in line
+    ]
+    assert len(rows) == 1
+    assert rows[0].startswith("| lmsd | skipped |")
+    assert rows[0].endswith("| slow \\| flaky second line |")

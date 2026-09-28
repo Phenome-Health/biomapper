@@ -117,6 +117,11 @@ def _load_exclusions(path: str) -> dict[str, dict[str, Any]]:
     records = json.loads(Path(path).read_text())
     if isinstance(records, dict):
         records = [records]
+    if not isinstance(records, list):
+        raise ValueError(
+            f"{path}: expected a JSON list of exclusion records (or one record), "
+            f"got {type(records).__name__}"
+        )
     out: dict[str, dict[str, Any]] = {}
     for record in records:
         arm = record.get("arm") if isinstance(record, dict) else None

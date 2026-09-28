@@ -415,6 +415,15 @@ def _headline(record: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+def _table_cell(text: str) -> str:
+    """Make free text safe inside one Markdown table cell.
+
+    Skip reasons are operator-supplied, so a ``|`` or a newline in one would split the row or
+    fabricate an extra one, garbling exactly the account of what was skipped and why.
+    """
+    return " ".join(str(text).split()).replace("|", "\\|")
+
+
 def _suite_readme(manifest: dict[str, Any]) -> str:
     """A short human-readable index beside the machine-readable manifest.
 
@@ -458,7 +467,7 @@ def _suite_readme(manifest: dict[str, Any]) -> str:
             circ = ""
         declared = entry.get("role") or ""
         flag = " **(disagrees)**" if circ and declared and circ != declared else ""
-        note = entry.get("reason") or entry.get("error") or ""
+        note = _table_cell(entry.get("reason") or entry.get("error") or "")
         lines.append(
             f"| {entry['dataset']} | {entry['status']} | "
             f"{weakest_claim(declared, circ) or 'n/a'} | "
