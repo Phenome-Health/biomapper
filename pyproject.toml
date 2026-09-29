@@ -5,9 +5,9 @@ description = "Python client for the BioMapper2 API — map biological entities 
 authors = ["Trent Leslie <trent.leslie@phenomehealth.org>"]
 license = "MIT"
 readme = "README.md"
-homepage = "https://github.com/trentleslie/biomapper"
-repository = "https://github.com/trentleslie/biomapper"
-documentation = "https://github.com/trentleslie/biomapper#readme"
+homepage = "https://github.com/Phenome-Health/biomapper"
+repository = "https://github.com/Phenome-Health/biomapper"
+documentation = "https://github.com/Phenome-Health/biomapper#readme"
 keywords = ["bioinformatics", "metabolomics", "knowledge-graph", "biomapper", "multi-omics"]
 classifiers = [
     "Development Status :: 5 - Production/Stable",

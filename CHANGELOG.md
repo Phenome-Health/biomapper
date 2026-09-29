@@ -5,6 +5,12 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- The canonical repository is now [Phenome-Health/biomapper](https://github.com/Phenome-Health/biomapper).
+  The package's homepage, repository and documentation URLs, the README clone command and the
+  tutorial's issues link point there; PyPI's project page picks this up with the next release.
+
 ## [1.5.5] - 2026-09-29
 
 ### Added

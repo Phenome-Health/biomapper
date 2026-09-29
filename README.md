@@ -569,7 +569,7 @@ A/B toggles a resolver constructor argument that is deliberately not on the API 
 ## Development
 
 ```bash
-git clone https://github.com/trentleslie/biomapper
+git clone https://github.com/Phenome-Health/biomapper
 cd biomapper
 poetry install --with dev --extras all
 
