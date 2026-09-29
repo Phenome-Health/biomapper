@@ -1,0 +1,857 @@
+{
+  "arm": "M (BioMapper, names only) vs B (Monti method, re-derived) vs Monti published",
+  "run_id": "cross_cohort_20260927T180720Z",
+  "created_utc": "20260927T180720Z",
+  "package": {
+    "name": "biomapper",
+    "version": "1.5.3",
+    "client_repo": {
+      "repo": "/tmp/bm153d/lib/python3.11",
+      "commit": null,
+      "dirty": null
+    },
+    "linker": "biomapper.benchmarks.scorers.cross_cohort_overlap.link_by_intersection",
+    "linker_generic": "biomapper.harmonize.link_by_intersection (cross-checked per pair)",
+    "baseline": "biomapper.benchmarks.scorers.arm_b_baseline.arm_b_overlap",
+    "panels": "biomapper.benchmarks.adapters.cohort_panel",
+    "mapper": "biomapper.benchmarks.api_mapper.ApiMapper",
+    "provenance": "biomapper.benchmarks.provenance.build_run_provenance"
+  },
+  "ported_from": {
+    "repo": "biomapper2",
+    "ref": "origin/dev",
+    "commit": "1ffb571e54fe028ef0ae4e748fc2e7ec093ee603",
+    "modules": [
+      "studies/external_benchmarks/adapters/cohort_panel.py",
+      "studies/external_benchmarks/scorers/arm_b_baseline.py",
+      "studies/external_benchmarks/scorers/cross_cohort_overlap.py",
+      "studies/external_benchmarks/scorers/link_certificate.py",
+      "studies/external_benchmarks/cross_cohort_run.py (driver, reference)"
+    ]
+  },
+  "provenance": {
+    "run_id": "cross_cohort_20260927T180720Z",
+    "biomapper_version": "1.5.3",
+    "api_endpoint": "https://biomapper.expertintheloop.io/api/v1",
+    "kestrel_url": "https://kestrel.krakenkg.com/api",
+    "kestrel_version": "0.3.0",
+    "run_timestamp": "2026-09-27T18:07:21.238664+00:00",
+    "kg_build": {
+      "kg_version": "2.3.0",
+      "kraken_package_version": "2.2.0",
+      "biolink_version": "4.2.5",
+      "build_timestamp": "2026-09-25T00:34:42.623612+00:00",
+      "git_commit": "3dd08a5b7b17e320ceb0c0091e09b781d4d90242",
+      "sources": [
+        "babel",
+        "bio-age",
+        "bio-bmi",
+        "cdes",
+        "ctkg",
+        "dakg",
+        "kg2",
+        "lipidmaps",
+        "loinc",
+        "long-covid",
+        "microbiome-kg",
+        "multiomics-kg",
+        "ncbigene",
+        "pgs-catalog",
+        "refmet",
+        "robokop",
+        "translator-kg-open",
+        "umls"
+      ],
+      "source_versions": {
+        "babel": "2026jul22",
+        "bio-age": "2019",
+        "bio-bmi": "2023",
+        "cdes": "accessed_2026-07-29",
+        "ctkg": "4.1.7",
+        "dakg": "0.5.7",
+        "kg2": "2.10.2",
+        "lipidmaps": "accessed_2026-08-07",
+        "loinc": "2.82",
+        "long-covid": "received_2026-09-17",
+        "microbiome-kg": "2.1.0",
+        "multiomics-kg": "2.1.0",
+        "ncbigene": "accessed_2026-08-31",
+        "pgs-catalog": "2026-07-29",
+        "refmet": "accessed_2026-08-07",
+        "robokop": "june2025",
+        "translator-kg-open": "2026_07_19",
+        "umls": "2025AA"
+      },
+      "kg_label": null,
+      "steps_run": {
+        "harmonize": false,
+        "integrate": true,
+        "postprocess": false
+      },
+      "build_duration_minutes": 136.2,
+      "node_count": null,
+      "edge_count": null
+    },
+    "health_error": null,
+    "client_git_commit": "unknown",
+    "client_git_dirty": null
+  },
+  "request": {
+    "entity_type": "metabolite",
+    "vocab": "CHEBI",
+    "annotation_mode": "all",
+    "provided_id_columns": [],
+    "batch_size": 20,
+    "endpoint": "https://biomapper.expertintheloop.io/api/v1",
+    "api_key_sent": false
+  },
+  "sources": {
+    "spreadsheet": {
+      "path": "/home/trentleslie/.claude/uploads/2390692a-d27f-5fa2-bb74-9b032f2d5009/99293a9b-datasets_metabolites.xlsx",
+      "sha256": "83a717846fdb0a4900808e5aed1e7c9edbc23ad8e20b1bc857c4f91763e36851"
+    },
+    "arivale_xlsx": {
+      "path": "/home/trentleslie/external_benchmark_runs/arivale_public_panel_20260804/watanabe2023_supp_data2_analytes.xlsx",
+      "sha256": "604dfca2a4601916f3db9964616063a1b471b9b68c2d221b73eb32fab89136f0"
+    },
+    "refmet_cache": {
+      "path": "/home/trentleslie/external_benchmark_runs/cohort_panels_20260804/necs_refmet_convert_cache.tsv",
+      "sha256": "1b24a743d9a75665a1c7a3446159a5d3539bc16f69c6849149aa290a18217ccd"
+    },
+    "monti_reference": {
+      "doi": "10.1007/s11357-026-02174-2",
+      "gold": "MOESM5 (Supplementary Table 5), 1495 metabolites",
+      "published_overlaps_read_from": "supplement MOESM6, sheet 'Table 2. Datasets', '# Overlap' column, with NECS as the reference row. Corroborated by supplement Table S03 over its 1052 metabolite rows (see monti_s03_derived per pair).",
+      "published_overlaps_NOT_read_from": "the Methods 'Datasets harmonization' prose, which disagrees with the table on two pairs (Xu 385, BLSA 188) and is superseded by it. The MAIN TEXT's Table 2 is 'Age-only markers' and is a different table from the supplement's 'Table 2. Datasets'; conflating the two is what made the prose look authoritative.",
+      "per_pair_provenance": "results.<cohort>.monti_published_provenance"
+    }
+  },
+  "panel_sizes_loaded": {
+    "necs": 1213,
+    "xuetal": 821,
+    "llfs": 364,
+    "blsa": 468,
+    "arivale": 659
+  },
+  "panel_sizes_published": {
+    "necs": 1213,
+    "arivale": 626,
+    "xuetal": 821,
+    "llfs": 408,
+    "blsa": 468
+  },
+  "certifiability": {
+    "necs": {
+      "certifiable": false,
+      "id_namespaces": []
+    },
+    "xuetal": {
+      "certifiable": false,
+      "id_namespaces": []
+    },
+    "llfs": {
+      "certifiable": false,
+      "id_namespaces": []
+    },
+    "blsa": {
+      "certifiable": false,
+      "id_namespaces": []
+    },
+    "arivale": {
+      "certifiable": true,
+      "id_namespaces": [
+        "cas",
+        "hmdb",
+        "kegg",
+        "pubchem"
+      ]
+    }
+  },
+  "certificate_tallies": {
+    "necs": {
+      "certificate_state": {
+        "corroborated": 605,
+        "uncorroborated": 522,
+        "unavailable": 73,
+        "contradicted": 13
+      },
+      "certificate_structure_status": {
+        "structure_present": 1139,
+        "structure_absent": 74
+      },
+      "certificate_refusal_reason": {
+        "(blank)": 1213
+      },
+      "certificate_tier_b_outcome": {
+        "resolved": 617,
+        "unresolvable": 507,
+        "out_of_scope": 74,
+        "lookup_failed": 15
+      },
+      "certificate_refmet_availability": {
+        "voted": 922,
+        "no_match": 291
+      },
+      "certificate_lipid_resolution_level": {
+        "unavailable": 1212,
+        "lipid_species": 1
+      },
+      "certificate_tier_b_snapshot_version": {
+        "(blank)": 1209,
+        "sweep_20260917T101627Z": 4
+      },
+      "certificate_independent_source": {
+        "(blank)": 596,
+        "metabolomics-workbench": 322,
+        "pubchem": 295
+      },
+      "certificate_independent_of_selection": {
+        "(blank)": 596,
+        "False": 322,
+        "True": 295
+      },
+      "chosen_kg_id_review": {
+        "(blank)": 1145,
+        "divergent_refmet": 58,
+        "conflict_no_structure": 10
+      }
+    },
+    "arivale": {
+      "certificate_state": {
+        "uncorroborated": 318,
+        "corroborated": 271,
+        "unavailable": 64,
+        "contradicted": 6
+      },
+      "certificate_structure_status": {
+        "structure_present": 595,
+        "structure_absent": 64
+      },
+      "certificate_refusal_reason": {
+        "(blank)": 659
+      },
+      "certificate_tier_b_outcome": {
+        "unresolvable": 314,
+        "resolved": 277,
+        "out_of_scope": 64,
+        "lookup_failed": 4
+      },
+      "certificate_refmet_availability": {
+        "voted": 473,
+        "no_match": 186
+      },
+      "certificate_lipid_resolution_level": {
+        "unavailable": 659
+      },
+      "certificate_tier_b_snapshot_version": {
+        "(blank)": 658,
+        "sweep_20260917T101627Z": 1
+      },
+      "certificate_independent_source": {
+        "(blank)": 382,
+        "metabolomics-workbench": 139,
+        "pubchem": 138
+      },
+      "certificate_independent_of_selection": {
+        "(blank)": 382,
+        "False": 139,
+        "True": 138
+      },
+      "chosen_kg_id_review": {
+        "(blank)": 618,
+        "divergent_refmet": 29,
+        "conflict_no_structure": 12
+      }
+    },
+    "xuetal": {
+      "certificate_state": {
+        "corroborated": 411,
+        "uncorroborated": 336,
+        "unavailable": 62,
+        "contradicted": 12
+      },
+      "certificate_structure_status": {
+        "structure_present": 758,
+        "structure_absent": 63
+      },
+      "certificate_refusal_reason": {
+        "(blank)": 821
+      },
+      "certificate_tier_b_outcome": {
+        "resolved": 422,
+        "unresolvable": 319,
+        "out_of_scope": 63,
+        "lookup_failed": 17
+      },
+      "certificate_refmet_availability": {
+        "voted": 665,
+        "no_match": 156
+      },
+      "certificate_lipid_resolution_level": {
+        "unavailable": 820,
+        "lipid_species": 1
+      },
+      "certificate_tier_b_snapshot_version": {
+        "(blank)": 817,
+        "sweep_20260917T101627Z": 4
+      },
+      "certificate_independent_source": {
+        "(blank)": 399,
+        "pubchem": 213,
+        "metabolomics-workbench": 209
+      },
+      "certificate_independent_of_selection": {
+        "(blank)": 399,
+        "True": 213,
+        "False": 209
+      },
+      "chosen_kg_id_review": {
+        "(blank)": 769,
+        "divergent_refmet": 42,
+        "conflict_no_structure": 10
+      }
+    },
+    "llfs": {
+      "certificate_state": {
+        "corroborated": 311,
+        "unavailable": 44,
+        "uncorroborated": 8,
+        "contradicted": 1
+      },
+      "certificate_structure_status": {
+        "structure_present": 182,
+        "structure_absent": 182
+      },
+      "certificate_refusal_reason": {
+        "(blank)": 364
+      },
+      "certificate_tier_b_outcome": {
+        "out_of_scope": 182,
+        "resolved": 174,
+        "unresolvable": 4,
+        "ambiguous": 2,
+        "lookup_failed": 2
+      },
+      "certificate_refmet_availability": {
+        "voted": 340,
+        "no_match": 24
+      },
+      "certificate_lipid_resolution_level": {
+        "unavailable": 226,
+        "lipid_species": 138
+      },
+      "certificate_tier_b_snapshot_version": {
+        "(blank)": 353,
+        "sweep_20260917T101627Z": 11
+      },
+      "certificate_independent_source": {
+        "(blank)": 188,
+        "pubchem": 89,
+        "metabolomics-workbench": 85,
+        "lipidmaps": 2
+      },
+      "certificate_independent_of_selection": {
+        "(blank)": 190,
+        "True": 89,
+        "False": 85
+      },
+      "chosen_kg_id_review": {
+        "(blank)": 347,
+        "divergent_refmet": 13,
+        "conflict_no_structure": 4
+      }
+    },
+    "blsa": {
+      "certificate_state": {
+        "unavailable": 315,
+        "uncorroborated": 78,
+        "corroborated": 74,
+        "contradicted": 1
+      },
+      "certificate_structure_status": {
+        "structure_absent": 315,
+        "structure_present": 153
+      },
+      "certificate_refusal_reason": {
+        "(blank)": 468
+      },
+      "certificate_tier_b_outcome": {
+        "out_of_scope": 315,
+        "resolved": 75,
+        "unresolvable": 42,
+        "ambiguous": 19,
+        "lookup_failed": 17
+      },
+      "certificate_refmet_availability": {
+        "no_match": 287,
+        "voted": 181
+      },
+      "certificate_lipid_resolution_level": {
+        "unavailable": 468
+      },
+      "certificate_tier_b_snapshot_version": {
+        "(blank)": 467,
+        "sweep_20260917T101627Z": 1
+      },
+      "certificate_independent_source": {
+        "(blank)": 374,
+        "metabolomics-workbench": 60,
+        "lipidmaps": 19,
+        "pubchem": 15
+      },
+      "certificate_independent_of_selection": {
+        "(blank)": 393,
+        "False": 60,
+        "True": 15
+      },
+      "chosen_kg_id_review": {
+        "(blank)": 421,
+        "conflict_no_structure": 43,
+        "divergent_refmet": 4
+      }
+    }
+  },
+  "chosen_namespace_tallies": {
+    "necs": {
+      "RM": 1056,
+      "HMDB": 84,
+      "CHEBI": 73
+    },
+    "arivale": {
+      "RM": 572,
+      "HMDB": 58,
+      "CHEBI": 29
+    },
+    "xuetal": {
+      "RM": 741,
+      "HMDB": 52,
+      "CHEBI": 28
+    },
+    "llfs": {
+      "RM": 360,
+      "HMDB": 2,
+      "CHEBI": 2
+    },
+    "blsa": {
+      "RM": 288,
+      "CHEBI": 157,
+      "HMDB": 23
+    }
+  },
+  "checkpoint_provenance": {
+    "per_panel": {
+      "necs": {
+        "panel": "necs",
+        "status": "match",
+        "drift": null,
+        "recorded": {
+          "endpoint": "https://biomapper.expertintheloop.io/api/v1",
+          "kestrel_version": "0.3.0",
+          "kg_version": "2.3.0",
+          "biolink_version": "4.2.5",
+          "build_timestamp": "2026-09-25T00:34:42.623612+00:00",
+          "git_commit": "3dd08a5b7b17e320ceb0c0091e09b781d4d90242"
+        }
+      },
+      "arivale": {
+        "panel": "arivale",
+        "status": "match",
+        "drift": null,
+        "recorded": {
+          "endpoint": "https://biomapper.expertintheloop.io/api/v1",
+          "kestrel_version": "0.3.0",
+          "kg_version": "2.3.0",
+          "biolink_version": "4.2.5",
+          "build_timestamp": "2026-09-25T00:34:42.623612+00:00",
+          "git_commit": "3dd08a5b7b17e320ceb0c0091e09b781d4d90242"
+        }
+      },
+      "xuetal": {
+        "panel": "xuetal",
+        "status": "match",
+        "drift": null,
+        "recorded": {
+          "endpoint": "https://biomapper.expertintheloop.io/api/v1",
+          "kestrel_version": "0.3.0",
+          "kg_version": "2.3.0",
+          "biolink_version": "4.2.5",
+          "build_timestamp": "2026-09-25T00:34:42.623612+00:00",
+          "git_commit": "3dd08a5b7b17e320ceb0c0091e09b781d4d90242"
+        }
+      },
+      "llfs": {
+        "panel": "llfs",
+        "status": "match",
+        "drift": null,
+        "recorded": {
+          "endpoint": "https://biomapper.expertintheloop.io/api/v1",
+          "kestrel_version": "0.3.0",
+          "kg_version": "2.3.0",
+          "biolink_version": "4.2.5",
+          "build_timestamp": "2026-09-25T00:34:42.623612+00:00",
+          "git_commit": "3dd08a5b7b17e320ceb0c0091e09b781d4d90242"
+        }
+      },
+      "blsa": {
+        "panel": "blsa",
+        "status": "match",
+        "drift": null,
+        "recorded": {
+          "endpoint": "https://biomapper.expertintheloop.io/api/v1",
+          "kestrel_version": "0.3.0",
+          "kg_version": "2.3.0",
+          "biolink_version": "4.2.5",
+          "build_timestamp": "2026-09-25T00:34:42.623612+00:00",
+          "git_commit": "3dd08a5b7b17e320ceb0c0091e09b781d4d90242"
+        }
+      }
+    },
+    "unconfirmed": {},
+    "allow_unpinned_checkpoints": false,
+    "note": "Panels are resolved as separate processes and combined here, so each checkpoint records the backend that answered it and is checked against the finalizing probe. A cross-cohort overlap built from two different graph builds is a number no single backend produced, which is why a mismatch aborts unless it is explicitly allowed and recorded."
+  },
+  "mapping_errors": {
+    "repair_pass": {
+      "necs": {
+        "attempted": 0,
+        "recovered": 0,
+        "still_errored": 0
+      },
+      "arivale": {
+        "attempted": 0,
+        "recovered": 0,
+        "still_errored": 0
+      },
+      "xuetal": {
+        "attempted": 0,
+        "recovered": 0,
+        "still_errored": 0
+      },
+      "llfs": {
+        "attempted": 0,
+        "recovered": 0,
+        "still_errored": 0
+      },
+      "blsa": {
+        "attempted": 0,
+        "recovered": 0,
+        "still_errored": 0
+      }
+    },
+    "repairs_skipped_for_unconfirmed_provenance": {},
+    "unrecovered_by_panel": {},
+    "note": "An errored row is a row the deployment never answered. It is counted apart from an unresolved row, because both carry an empty CURIE set and merging them would report a non-resolution that never happened. A panel with unrecovered errors has a resolution count that is a floor, not a measurement."
+  },
+  "circularity_register": {
+    "kraken_sources": [
+      "babel",
+      "bio-age",
+      "bio-bmi",
+      "cdes",
+      "ctkg",
+      "dakg",
+      "kg2",
+      "lipidmaps",
+      "loinc",
+      "long-covid",
+      "microbiome-kg",
+      "multiomics-kg",
+      "ncbigene",
+      "pgs-catalog",
+      "refmet",
+      "robokop",
+      "translator-kg-open",
+      "umls"
+    ],
+    "kraken_source_versions": {
+      "babel": "2026jul22",
+      "bio-age": "2019",
+      "bio-bmi": "2023",
+      "cdes": "accessed_2026-07-29",
+      "ctkg": "4.1.7",
+      "dakg": "0.5.7",
+      "kg2": "2.10.2",
+      "lipidmaps": "accessed_2026-08-07",
+      "loinc": "2.82",
+      "long-covid": "received_2026-09-17",
+      "microbiome-kg": "2.1.0",
+      "multiomics-kg": "2.1.0",
+      "ncbigene": "accessed_2026-08-31",
+      "pgs-catalog": "2026-07-29",
+      "refmet": "accessed_2026-08-07",
+      "robokop": "june2025",
+      "translator-kg-open": "2026_07_19",
+      "umls": "2025AA"
+    },
+    "necs_gold_source": "Metabolon CHEMICAL_NAME vendor curation (MOESM5). Not a KRAKEN-ingested vocabulary, so the NECS name gold is not circular through the graph.",
+    "refmet_ingested": true,
+    "refmet_caveat": "RefMet is both ingested into KRAKEN and the resolver's source-weighting target, and production answers this arm predominantly with RM:* nodes. Any number whose gold is a RefMet name is coverage, not accuracy."
+  },
+  "results": {
+    "arivale": {
+      "certifiable": true,
+      "certifiability_note": "vendor id namespaces present: ['cas', 'hmdb', 'kegg', 'pubchem']",
+      "panel_n_loaded": 659,
+      "panel_n_published": 626,
+      "panel_card": {
+        "cohort": "arivale",
+        "n_rows": 659,
+        "n_raw": 766,
+        "exclusions": {
+          "blank_name": 0,
+          "unidentified_x": 107,
+          "duplicate_name": 0
+        },
+        "id_namespaces": [
+          "cas",
+          "hmdb",
+          "kegg",
+          "pubchem"
+        ],
+        "certifiable": true,
+        "source_doi": "10.1038/s41591-023-02248-0",
+        "source_sha256": "a50bacaae072d92302626904b1105a2bd31773376576ea351d7b027b164ae849",
+        "license": "CC BY (Watanabe et al. 2023, Nature Medicine).",
+        "monti_panel_size": 626,
+        "monti_size_gap": 33
+      },
+      "arm_m_links": 1792,
+      "arm_m_necs_linked": 616,
+      "arm_m_cohort_linked": 591,
+      "necs_comparable": 1213,
+      "cohort_comparable": 659,
+      "necs_unresolved": 0,
+      "cohort_unresolved": 0,
+      "necs_errored": 0,
+      "cohort_errored": 0,
+      "arm_b_rederived": 583,
+      "arm_b_method": "CHEMICAL_NAME (case-insensitive)",
+      "monti_published": 615,
+      "monti_published_provenance": {
+        "published": 615,
+        "source": "supplement MOESM6, sheet 'Table 2. Datasets', '# Overlap' column",
+        "s03_derived": null,
+        "corroborated_by": "Methods prose and the Arivale cohort description both also say 615: 'After name curation, 615 metabolites were matched to metabolites in the NECS dataset'",
+        "conflict": null
+      },
+      "monti_published_superseded_value": 615,
+      "monti_s03_derived": null,
+      "arm_b_gap_to_published": -32,
+      "arm_m_vs_arm_b": 33,
+      "arm_m_vs_published": 1,
+      "harmonize_cross_check": {
+        "agree": true,
+        "scorer_n_links": 1792,
+        "harmonize_n_links": 1792
+      },
+      "comparator_independence": {
+        "label": "accuracy_candidate",
+        "comparator_source_in_graph": null,
+        "reason": "the published comparator for this pair is Metabolon CHEMICAL_NAME vendor curation, which is not a KRAKEN-ingested source, so the comparison does not run through a shared vocabulary. Not a full independence verdict: this arm measures links recovered, not structural correctness, and certification is reported separately."
+      },
+      "arm_b_reconstruction_basis": {
+        "method": "name",
+        "note": "raw CHEMICAL_NAME join; no standardization step, so nothing is dropped first"
+      }
+    },
+    "xuetal": {
+      "certifiable": false,
+      "certifiability_note": "names only, no vendor identifiers: links are countable but never structurally certifiable",
+      "panel_n_loaded": 821,
+      "panel_n_published": 821,
+      "panel_card": {
+        "cohort": "xuetal",
+        "n_rows": 821,
+        "n_raw": 1495,
+        "exclusions": {
+          "blank_name": 674,
+          "unidentified_x": 0,
+          "duplicate_name": 0
+        },
+        "id_namespaces": [],
+        "certifiable": false,
+        "source_doi": "10.1038/s42003-022-03323-x",
+        "source_sha256": "6822cdfd662b9556be7aed283fa16e4585a41cb455e6b9f59bec8b5dd16fbfd0",
+        "license": "See Xu et al. 2022 supplement terms."
+      },
+      "arm_m_links": 1934,
+      "arm_m_necs_linked": 775,
+      "arm_m_cohort_linked": 741,
+      "necs_comparable": 1213,
+      "cohort_comparable": 821,
+      "necs_unresolved": 0,
+      "cohort_unresolved": 0,
+      "necs_errored": 0,
+      "cohort_errored": 0,
+      "arm_b_rederived": 470,
+      "arm_b_method": "CHEMICAL_NAME (case-sensitive)",
+      "monti_published": 432,
+      "monti_published_provenance": {
+        "published": 432,
+        "source": "supplement MOESM6, sheet 'Table 2. Datasets', '# Overlap' column",
+        "s03_derived": 432,
+        "corroborated_by": "Table S03 derives exactly 432, and the Xu cohort description says '432 metabolites were matched to metabolites in the NECS dataset'",
+        "conflict": {
+          "prose_value": 385,
+          "quote": "which yielded an overlap of 615 and 385 metabolites, respectively",
+          "section": "Methods, 'Datasets harmonization'",
+          "resolution": "the table, the S03 derivation and the cohort description all say 432; the prose 385 is the lone outlier and is not used"
+        }
+      },
+      "monti_published_superseded_value": 385,
+      "monti_s03_derived": 432,
+      "arm_b_gap_to_published": 38,
+      "arm_m_vs_arm_b": 305,
+      "arm_m_vs_published": 343,
+      "harmonize_cross_check": {
+        "agree": true,
+        "scorer_n_links": 1934,
+        "harmonize_n_links": 1934
+      },
+      "comparator_independence": {
+        "label": "accuracy_candidate",
+        "comparator_source_in_graph": null,
+        "reason": "the published comparator for this pair is Metabolon CHEMICAL_NAME vendor curation, which is not a KRAKEN-ingested source, so the comparison does not run through a shared vocabulary. Not a full independence verdict: this arm measures links recovered, not structural correctness, and certification is reported separately."
+      },
+      "arm_b_reconstruction_basis": {
+        "method": "name",
+        "note": "raw CHEMICAL_NAME join; no standardization step, so nothing is dropped first"
+      }
+    },
+    "llfs": {
+      "certifiable": false,
+      "certifiability_note": "names only, no vendor identifiers: links are countable but never structurally certifiable",
+      "panel_n_loaded": 364,
+      "panel_n_published": 408,
+      "panel_card": {
+        "cohort": "llfs",
+        "n_rows": 364,
+        "n_raw": 1495,
+        "exclusions": {
+          "blank_name": 1131,
+          "unidentified_x": 0,
+          "duplicate_name": 0
+        },
+        "id_namespaces": [],
+        "certifiable": false,
+        "source_doi": "10.1016/j.xgen.2024.100601",
+        "source_sha256": "6822cdfd662b9556be7aed283fa16e4585a41cb455e6b9f59bec8b5dd16fbfd0",
+        "license": "See Sebastiani et al. 2024 supplement terms.",
+        "monti_panel_size": 408,
+        "monti_size_gap": -44
+      },
+      "arm_m_links": 138,
+      "arm_m_necs_linked": 134,
+      "arm_m_cohort_linked": 127,
+      "necs_comparable": 1213,
+      "cohort_comparable": 364,
+      "necs_unresolved": 0,
+      "cohort_unresolved": 0,
+      "necs_errored": 0,
+      "cohort_errored": 0,
+      "arm_b_rederived": 144,
+      "arm_b_method": "RefMet join (drop_na before join)",
+      "monti_published": 163,
+      "monti_published_provenance": {
+        "published": 163,
+        "source": "supplement MOESM6, sheet 'Table 2. Datasets', '# Overlap' column",
+        "s03_derived": 162,
+        "corroborated_by": "Methods prose and the LLFS cohort description both also say 163; Table S03 derives 162, one short, consistent with S03 counting metabolites that carry a statistic",
+        "conflict": null
+      },
+      "monti_published_superseded_value": 163,
+      "monti_s03_derived": 162,
+      "arm_b_gap_to_published": -19,
+      "arm_m_vs_arm_b": -10,
+      "arm_m_vs_published": -29,
+      "harmonize_cross_check": {
+        "agree": true,
+        "scorer_n_links": 138,
+        "harmonize_n_links": 138
+      },
+      "comparator_independence": {
+        "label": "coverage",
+        "comparator_source_in_graph": "refmet",
+        "reason": "the published comparator for this pair is a refmet name join, and 'refmet' is ingested into the graph being measured and is the resolver's source-weighting target. BioMapper's answer and the comparator therefore share a vocabulary; report the difference as coverage, not accuracy."
+      },
+      "arm_b_reconstruction_basis": {
+        "method": "refmet",
+        "necs_standardizable": 1066,
+        "necs_n": 1213,
+        "cohort_standardizable": 364,
+        "cohort_n": 364,
+        "reconstruction_ceiling": 364,
+        "note": "a name that does not RefMet-standardize is dropped before the join, so the reconstruction cannot exceed the smaller standardizable side. Read the gap to the published number against this ceiling, not as a disagreement with the paper."
+      }
+    },
+    "blsa": {
+      "certifiable": false,
+      "certifiability_note": "names only, no vendor identifiers: links are countable but never structurally certifiable",
+      "panel_n_loaded": 468,
+      "panel_n_published": 468,
+      "panel_card": {
+        "cohort": "blsa",
+        "n_rows": 468,
+        "n_raw": 1495,
+        "exclusions": {
+          "blank_name": 1027,
+          "unidentified_x": 0,
+          "duplicate_name": 0
+        },
+        "id_namespaces": [],
+        "certifiable": false,
+        "source_doi": "10.1038/s43587-023-00514-x",
+        "source_sha256": "6822cdfd662b9556be7aed283fa16e4585a41cb455e6b9f59bec8b5dd16fbfd0",
+        "license": "See Tian et al. 2023 supplement terms."
+      },
+      "arm_m_links": 116,
+      "arm_m_necs_linked": 101,
+      "arm_m_cohort_linked": 85,
+      "necs_comparable": 1213,
+      "cohort_comparable": 468,
+      "necs_unresolved": 0,
+      "cohort_unresolved": 0,
+      "necs_errored": 0,
+      "cohort_errored": 0,
+      "arm_b_rederived": 79,
+      "arm_b_method": "RefMet join (drop_na before join)",
+      "monti_published": 99,
+      "monti_published_provenance": {
+        "published": 99,
+        "source": "supplement MOESM6, sheet 'Table 2. Datasets', '# Overlap' column",
+        "s03_derived": 88,
+        "corroborated_by": "Table S03 derives 88, which is 11 from 99 and 100 from 188, placing BLSA at 99",
+        "conflict": {
+          "prose_value": 188,
+          "quote": "which yielded an overlap of 163 and 188 metabolites, respectively",
+          "section": "Methods, 'Datasets harmonization'",
+          "resolution": "the table says 99 and S03 derives 88. 188 is the paper's own count of LIPID metabolites in the LLFS panel ('408 metabolites (188 lipid and 220 polar)'), so the prose sentence appears to have carried the LLFS lipid count. That coincidence is the evidence and must stay visible."
+        }
+      },
+      "monti_published_superseded_value": 188,
+      "monti_s03_derived": 88,
+      "arm_b_gap_to_published": -20,
+      "arm_m_vs_arm_b": 22,
+      "arm_m_vs_published": 2,
+      "harmonize_cross_check": {
+        "agree": true,
+        "scorer_n_links": 116,
+        "harmonize_n_links": 116
+      },
+      "comparator_independence": {
+        "label": "coverage",
+        "comparator_source_in_graph": "refmet",
+        "reason": "the published comparator for this pair is a refmet name join, and 'refmet' is ingested into the graph being measured and is the resolver's source-weighting target. BioMapper's answer and the comparator therefore share a vocabulary; report the difference as coverage, not accuracy."
+      },
+      "arm_b_reconstruction_basis": {
+        "method": "refmet",
+        "necs_standardizable": 1066,
+        "necs_n": 1213,
+        "cohort_standardizable": 241,
+        "cohort_n": 468,
+        "reconstruction_ceiling": 241,
+        "note": "a name that does not RefMet-standardize is dropped before the join, so the reconstruction cannot exceed the smaller standardizable side. Read the gap to the published number against this ceiling, not as a disagreement with the paper."
+      }
+    }
+  }
+}

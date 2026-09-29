@@ -42,7 +42,7 @@ class BioMapperClient:
     Handles authentication, request serialization, error mapping, and optional
     rate-limited batch processing.
 
-    Usage (minimal)::
+    Usage (minimal, keyless against the hosted deployment)::
 
         async with BioMapperClient() as client:
             result = await client.map_entity("L-Histidine")
@@ -56,11 +56,33 @@ class BioMapperClient:
                 identifiers={"HMDB": "HMDB03349"},
             )
 
+    Usage (force keyless even when ``BIOMAPPER_API_KEY`` is set)::
+
+        async with BioMapperClient(anonymous=True) as client:
+            result = await client.map_entity("L-Histidine")
+
     Args:
-        api_key:    BioMapper API key.  Defaults to ``BIOMAPPER_API_KEY`` env var.
+        api_key:    BioMapper API key. Optional. Defaults to the ``BIOMAPPER_API_KEY`` env var;
+                    when neither is set the client is keyless.
         base_url:   API root URL.  Override for staging/local instances.
         timeout:    Per-request timeout in seconds.
-        httpx_kwargs: Extra kwargs forwarded to :class:`httpx.AsyncClient`.
+        anonymous:  Send no ``X-API-Key`` header even if ``BIOMAPPER_API_KEY`` is set.
+
+    Keyless by default (decided 2026-09-28, 1.5.4). The hosted deployment takes no key, so a
+    client with no key configured sends no ``X-API-Key`` header rather than refusing to start.
+    Earlier releases required ``anonymous=True`` to go keyless and raised on a missing key, so
+    that a forgotten ``BIOMAPPER_API_KEY`` could not silently downgrade to an unauthenticated
+    call. That protection is kept where it matters: against a deployment that does require a
+    key, the first request still fails loudly, with a ``BioMapperAuthError`` saying a key is
+    required, rather than at construction. A key from the argument or the environment is sent
+    unless ``anonymous=True`` is passed, and no placeholder header is ever sent: an empty
+    ``X-API-Key`` is a present-but-unknown key, which an authenticated deployment answers with
+    403 instead of the 401 that says a key is needed.
+
+    Raises:
+        BioMapperConfigError: If an explicit ``api_key`` is supplied together with
+            ``anonymous=True``, an ambiguous instruction where guessing which was meant would
+            either leak a key or silently drop one.
     """
 
     def __init__(
@@ -68,14 +90,20 @@ class BioMapperClient:
         api_key: str | None = None,
         base_url: str = DEFAULT_BASE_URL,
         timeout: float = DEFAULT_TIMEOUT,
+        anonymous: bool = False,
         **httpx_kwargs: Any,  # noqa: ANN401 — forwarded to httpx.AsyncClient verbatim
     ) -> None:
         resolved_key = api_key or os.getenv("BIOMAPPER_API_KEY")
-        if not resolved_key:
+        if anonymous and api_key:
             raise BioMapperConfigError(
-                "No API key provided. Pass api_key= or set BIOMAPPER_API_KEY env var."
+                "anonymous=True was passed together with an explicit api_key. Refusing to guess "
+                "which one you meant: drop the key to go keyless, or drop anonymous=True to "
+                "authenticate."
             )
-        self._api_key = resolved_key
+        # Keyless by default: no key configured means no header, not an error.
+        anonymous = anonymous or not resolved_key
+        self._anonymous = anonymous
+        self._api_key = None if anonymous else resolved_key
         self._base_url = base_url.rstrip("/")
         self._timeout = timeout
         self._httpx_kwargs = httpx_kwargs
@@ -86,8 +114,12 @@ class BioMapperClient:
     # ------------------------------------------------------------------
 
     async def __aenter__(self) -> BioMapperClient:
+        # No header at all when keyless. An empty ``X-API-Key`` is a *present but unknown* key,
+        # which an authenticated deployment answers with 403 rather than the 401 that would tell
+        # the caller a key is needed.
+        headers = {} if self._anonymous else {"X-API-Key": self._api_key or ""}
         self._client = httpx.AsyncClient(
-            headers={"X-API-Key": self._api_key},
+            headers=headers,
             timeout=self._timeout,
             **self._httpx_kwargs,
         )
@@ -115,9 +147,12 @@ class BioMapperClient:
         """Map HTTP status codes to typed exceptions."""
         code = response.status_code
         if code == 401 or code == 403:
-            raise BioMapperAuthError(
-                f"Authentication failed (HTTP {code}). Check your API key."
-            )
+            if self._anonymous:
+                raise BioMapperAuthError(
+                    f"This deployment requires an API key (HTTP {code}): pass api_key= or set "
+                    "BIOMAPPER_API_KEY."
+                )
+            raise BioMapperAuthError(f"API key rejected (HTTP {code}).")
         if code == 429:
             retry_after: float | None = None
             if ra := response.headers.get("Retry-After"):
@@ -231,9 +266,16 @@ class BioMapperClient:
         self,
         name: str,
         entity_type: str = "biolink:SmallMolecule",
-        identifiers: dict[str, str] | None = None,
+        identifiers: dict[str, str | list[str]] | None = None,
         annotation_mode: str = "missing",
         annotators: list[str] | None = None,
+        *,
+        vocab: str | list[str] | None = None,
+        array_delimiters: list[str] | None = None,
+        prefer_human: bool | None = None,
+        prefer_canonical: bool | None = None,
+        candidate_limit: int | None = None,
+        kestrel_top_n: int | None = None,
     ) -> MappingResult:
         """Map a single entity name to standardized knowledge-graph identifiers.
 
@@ -247,19 +289,41 @@ class BioMapperClient:
             annotators:      Optional list of annotator names to use. When not
                              specified, BioMapper2 uses all available annotators.
                              Use ``["kestrel-vector-search"]`` for strict matching.
+            vocab:           Allowed vocabulary name(s) to map to, e.g. ``"refmet"``.
+            array_delimiters: Characters used to split delimited ID strings.
+            prefer_human:    For gene/protein entities, prefer the human (HGNC-bearing)
+                             candidate over a wrong-species ortholog. Server default ``True``.
+            prefer_canonical: For non-gene categories with a canonical-namespace policy,
+                             prefer the canonical-namespace node. Server default ``True``.
+            candidate_limit: Candidates each Kestrel search annotator retrieves (1..100).
+            kestrel_top_n:   Opt in to raw Kestrel passthrough rows on
+                             :attr:`MappingResult.kestrel_results` (1..100). Passthrough only:
+                             it never changes ``chosen_kg_id``, ``assigned_ids`` or the
+                             certificate.
+
+        Any option left as ``None`` is omitted from the request, so the server's own default
+        applies and the payload is unchanged for callers who do not use these.
 
         Returns:
             A :class:`~biomapper.models.MappingResult` with resolved identifiers.
 
         Raises:
+            ValueError: If ``candidate_limit`` or ``kestrel_top_n`` is outside 1..100.
             BioMapperAuthError: If the API key is rejected.
             BioMapperRateLimitError: If the API signals throttling.
             BioMapperServerError: For unrecoverable 5xx errors.
             BioMapperTimeoutError: If the request times out.
         """
-        options: dict[str, Any] = {"annotation_mode": annotation_mode}
-        if annotators is not None:
-            options["annotators"] = annotators
+        options = self._build_options(
+            annotation_mode,
+            annotators,
+            vocab=vocab,
+            array_delimiters=array_delimiters,
+            prefer_human=prefer_human,
+            prefer_canonical=prefer_canonical,
+            candidate_limit=candidate_limit,
+            kestrel_top_n=kestrel_top_n,
+        )
 
         payload = MapEntityRequest(
             name=name,
@@ -268,7 +332,7 @@ class BioMapperClient:
             options=options,
         )
 
-        hmdb_hint: str | None = (identifiers or {}).get("HMDB")
+        hmdb_hint = self._hmdb_hint(identifiers or {})
 
         try:
             response = await self._http.post(
@@ -289,6 +353,13 @@ class BioMapperClient:
         annotation_mode: str = "missing",
         annotators: list[str] | None = None,
         progress: bool = False,
+        *,
+        vocab: str | list[str] | None = None,
+        array_delimiters: list[str] | None = None,
+        prefer_human: bool | None = None,
+        prefer_canonical: bool | None = None,
+        candidate_limit: int | None = None,
+        kestrel_top_n: int | None = None,
     ) -> list[MappingResult]:
         """Map a batch of entity records via the native ``/map/batch`` endpoint.
 
@@ -310,10 +381,16 @@ class BioMapperClient:
         Returns:
             List of :class:`~biomapper.models.MappingResult`, one per input record,
             in input order. Records that fail (either per-record errors in a
-            successful response or every record in a chunk-level HTTP failure)
-            return a result with ``error`` set rather than raising.
+            successful response or every record in a transient chunk-level
+            failure: 429, 5xx, timeout, malformed response) return a result with
+            ``error`` set rather than raising.
 
         Raises:
+            BioMapperAuthError: On HTTP 401/403. An auth failure is systemic, not
+                per-entity: every later chunk would fail the same way, so it aborts
+                the batch instead of turning every record into an error row. This is
+                what keeps a missing key against an authenticated deployment loud
+                now that the client is keyless by default.
             asyncio.CancelledError: Propagated immediately so callers can cancel
                 mid-batch. All other exceptions are caught and surfaced as
                 per-record errors.
@@ -331,12 +408,25 @@ class BioMapperClient:
         """
         records = list(records)  # materialize so generators work and len() is safe
 
+        # Built once: the option block is identical for every record, and building it here means
+        # an out-of-range bound raises before any request is sent rather than per chunk.
+        options = self._build_options(
+            annotation_mode,
+            annotators,
+            vocab=vocab,
+            array_delimiters=array_delimiters,
+            prefer_human=prefer_human,
+            prefer_canonical=prefer_canonical,
+            candidate_limit=candidate_limit,
+            kestrel_top_n=kestrel_top_n,
+        )
+
         requests = [
             MapEntityRequest(
                 name=str(r.get("name", "")),
                 entity_type=entity_type,
                 identifiers=dict(r.get("identifiers") or {}),
-                options=self._build_options(annotation_mode, annotators),
+                options=dict(options),
             )
             for r in records
         ]
@@ -387,17 +477,19 @@ class BioMapperClient:
                             MappingResult.from_batch_entry(
                                 raw,
                                 query_name=req.name,
-                                hmdb_hint=req.identifiers.get("HMDB"),
+                                hmdb_hint=self._hmdb_hint(req.identifiers),
                             )
                         )
-                except asyncio.CancelledError:
+                except (asyncio.CancelledError, BioMapperAuthError):
+                    # Auth failures are systemic (every chunk would fail alike), so they
+                    # abort rather than becoming per-record errors.
                     raise
                 except Exception as exc:  # noqa: BLE001 — broad catch preserves "one bad chunk doesn't abort the batch"
                     for req in chunk:
                         results.append(
                             MappingResult(
                                 query_name=req.name,
-                                hmdb_hint=req.identifiers.get("HMDB"),
+                                hmdb_hint=self._hmdb_hint(req.identifiers),
                                 error=str(exc),
                             )
                         )
@@ -416,12 +508,56 @@ class BioMapperClient:
         return results
 
     @staticmethod
+    def _hmdb_hint(identifiers: dict[str, str | list[str]]) -> str | None:
+        """Echo back the HMDB hint. The API accepts a list per vocabulary, so unwrap one."""
+        value = identifiers.get("HMDB")
+        if isinstance(value, list):
+            return str(value[0]) if value else None
+        return value
+
+    @staticmethod
+    def _check_bounds(name: str, value: int | None) -> None:
+        """Reject an out-of-range 1..100 option locally.
+
+        The API bounds ``candidate_limit`` and ``kestrel_top_n`` to 1..100 and answers 422.
+        Failing here turns a wasted round trip into an immediate, self-describing error.
+        """
+        if value is not None and not (1 <= value <= 100):
+            raise ValueError(f"{name} must be between 1 and 100, got {value}")
+
+    @staticmethod
     def _build_options(
-        annotation_mode: str, annotators: list[str] | None
+        annotation_mode: str,
+        annotators: list[str] | None,
+        *,
+        vocab: str | list[str] | None = None,
+        array_delimiters: list[str] | None = None,
+        prefer_human: bool | None = None,
+        prefer_canonical: bool | None = None,
+        candidate_limit: int | None = None,
+        kestrel_top_n: int | None = None,
     ) -> dict[str, Any]:
+        """Assemble the ``options`` block, omitting anything the caller left unset.
+
+        An unset option is left out entirely rather than sent as ``None``, so the server's own
+        default governs and the wire payload stays byte-identical to the pre-existing one for
+        callers who pass nothing new.
+        """
+        BioMapperClient._check_bounds("candidate_limit", candidate_limit)
+        BioMapperClient._check_bounds("kestrel_top_n", kestrel_top_n)
+
         options: dict[str, Any] = {"annotation_mode": annotation_mode}
-        if annotators is not None:
-            options["annotators"] = annotators
+        for key, value in (
+            ("annotators", annotators),
+            ("vocab", vocab),
+            ("array_delimiters", array_delimiters),
+            ("prefer_human", prefer_human),
+            ("prefer_canonical", prefer_canonical),
+            ("candidate_limit", candidate_limit),
+            ("kestrel_top_n", kestrel_top_n),
+        ):
+            if value is not None:
+                options[key] = value
         return options
 
     async def map_dataset_file_iter(
@@ -434,6 +570,10 @@ class BioMapperClient:
         annotation_mode: str = "missing",
         annotators: list[str] | None = None,
         vocab: str | None = None,
+        prefer_human: bool | None = None,
+        prefer_canonical: bool | None = None,
+        candidate_limit: int | None = None,
+        kestrel_top_n: int | None = None,
     ) -> AsyncGenerator[MappingResult, None]:
         """Stream per-row mapping results from ``POST /map/dataset/stream``.
 
@@ -511,6 +651,10 @@ class BioMapperClient:
             annotation_mode=annotation_mode,
             annotators=annotators,
             vocab=vocab,
+            prefer_human=prefer_human,
+            prefer_canonical=prefer_canonical,
+            candidate_limit=candidate_limit,
+            kestrel_top_n=kestrel_top_n,
         )
         content_type = self._dataset_content_type(path)
 
@@ -568,6 +712,10 @@ class BioMapperClient:
         annotation_mode: str,
         annotators: list[str] | None,
         vocab: str | None,
+        prefer_human: bool | None = None,
+        prefer_canonical: bool | None = None,
+        candidate_limit: int | None = None,
+        kestrel_top_n: int | None = None,
     ) -> dict[str, str]:
         """Serialize dataset endpoint query params.
 
@@ -575,10 +723,16 @@ class BioMapperClient:
         the wire form. Commas inside any value are rejected as a ``ValueError``
         at the boundary — silently splitting ``"iupac,name"`` into two
         columns would corrupt the request undetectably.
+
+        The dataset routes take the mapping options as query params rather than an options
+        object, and ``array_delimiters`` is not among them, so it has no dataset equivalent.
+        An option left as ``None`` is omitted so the server default applies.
         """
         BioMapperClient._reject_commas("provided_id_columns", provided_id_columns)
         if annotators is not None:
             BioMapperClient._reject_commas("annotators", annotators)
+        BioMapperClient._check_bounds("candidate_limit", candidate_limit)
+        BioMapperClient._check_bounds("kestrel_top_n", kestrel_top_n)
 
         params: dict[str, str] = {
             "entity_type": entity_type,
@@ -590,6 +744,15 @@ class BioMapperClient:
             params["annotators"] = ",".join(annotators)
         if vocab is not None:
             params["vocab"] = vocab
+        # Booleans go on the wire lowercased, which is what FastAPI's bool parser expects.
+        if prefer_human is not None:
+            params["prefer_human"] = str(prefer_human).lower()
+        if prefer_canonical is not None:
+            params["prefer_canonical"] = str(prefer_canonical).lower()
+        if candidate_limit is not None:
+            params["candidate_limit"] = str(candidate_limit)
+        if kestrel_top_n is not None:
+            params["kestrel_top_n"] = str(kestrel_top_n)
         return params
 
     @staticmethod

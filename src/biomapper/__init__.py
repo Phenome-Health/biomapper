@@ -31,8 +31,17 @@ Quick start::
     # Async (in an async context)
     async with BioMapperClient() as client:
         result = await client.map_entity("L-Histidine")
+
+    # Harmonize two already-resolved cohorts (local, offline, no extra requests).
+    # `harmonize` is deliberately NOT re-exported at the package root: the name would
+    # shadow the `biomapper.harmonize` submodule and break `biomapper.harmonize.curie_set`.
+    from biomapper.harmonize import harmonize
+
+    report = harmonize(ukbb_results, arivale_results, a_label="ukbb", b_label="arivale")
+    print(report.n_links, report.a_unresolved)
 """
 
+from biomapper._version import resolve_version as _resolve_version
 from biomapper.client import BioMapperClient
 from biomapper.dataset import map_dataset_file_sync
 from biomapper.exceptions import (
@@ -55,12 +64,25 @@ from biomapper.models import (
     AnnotatorInfo,
     DatasetMappingResult,
     EntityTypeInfo,
+    KestrelRequestParams,
+    KestrelSearchResult,
+    LipidResolution,
     MappingResult,
     MappingSummary,
+    ResolutionCertificate,
     VocabularyInfo,
 )
 
-__version__ = "1.3.0"
+# Single-sourced from the installed distribution metadata, which Poetry builds from
+# ``pyproject.toml``. It is deliberately NOT a literal here: a second literal is a second source of
+# truth, and the two drifted (pyproject 1.5.1 against a hardcoded 1.4.0) for long enough that no run
+# manifest could name its own package version unambiguously. ``pyproject.toml`` is the one source;
+# ``tests/test_version.py`` fails the build if this module ever reintroduces a literal.
+#
+# Resolution AND the uninstalled fallback both live in ``biomapper._version`` so that this attribute
+# and ``provenance.package_version()`` cannot answer differently in any case, including the
+# no-metadata one.
+__version__ = _resolve_version()
 
 __all__ = [
     # Client
@@ -80,6 +102,10 @@ __all__ = [
     "EntityTypeInfo",
     "AnnotatorInfo",
     "VocabularyInfo",
+    "ResolutionCertificate",
+    "LipidResolution",
+    "KestrelSearchResult",
+    "KestrelRequestParams",
     # Exceptions
     "BioMapperError",
     "BioMapperAuthError",

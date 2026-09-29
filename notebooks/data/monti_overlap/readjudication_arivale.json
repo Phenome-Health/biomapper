@@ -1,0 +1,19 @@
+{
+  "cohort": "arivale",
+  "cases_examined": 1340,
+  "outcomes": {
+    "not_adjudicable_by_construction": 838,
+    "outside_source_unresolved": 32,
+    "distinct_vendor_names_structure_unverified": 130,
+    "differing_lipid_chain_annotation": 329,
+    "necs_gold_suspect": 9,
+    "both_sides_disagree_with_outside": 1,
+    "conjugate_linked_to_parent": 1
+  },
+  "limit_applied": null,
+  "mass_tolerance_da": 0.02,
+  "min_interval_s": 0.25,
+  "unresolved_outside_count": 32,
+  "outside_source": "PubChem PUG-REST name index (InChIKey, MolecularFormula, MonoisotopicMass)",
+  "caveat": "a first-block comparison over-flags tautomers and charge variants as refuted, and silently accepts a stereoisomer error when a side has no stereo layer. The second failure mode is not recoverable by this re-adjudication."
+}

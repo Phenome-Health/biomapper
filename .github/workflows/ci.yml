@@ -43,3 +43,11 @@ jobs:
 
       - name: Tests (pytest + coverage)
         run: poetry run pytest
+
+      # Checks the BUILT wheel, not the source config or this job's environment. Both of those can
+      # be healthy while the published artifact is broken: 1.5.2 shipped four extras that gated no
+      # requirements, and this job stayed green because `poetry install --all-extras` also installs
+      # every non-optional group. An advertised-but-empty extra is worse than an absent one,
+      # because `pip install biomapper[benchmarks]` succeeds and fails at first import instead.
+      - name: Built wheel advertises no empty extras
+        run: poetry run python scripts/check_wheel_extras.py

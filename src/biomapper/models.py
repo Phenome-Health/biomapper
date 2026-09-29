@@ -26,7 +26,7 @@ class MapEntityRequest(BaseModel):
 
     name: str
     entity_type: str = "biolink:SmallMolecule"
-    identifiers: dict[str, str] = Field(default_factory=dict)
+    identifiers: dict[str, str | list[str]] = Field(default_factory=dict)
     options: dict[str, Any] = Field(default_factory=lambda: {"annotation_mode": "missing"})
 
     model_config = {"populate_by_name": True}
@@ -44,6 +44,88 @@ class ApiMetadata(BaseModel):
     processing_time_ms: float = 0.0
 
 
+class ResolutionCertificate(BaseModel):
+    """What the graph asserts about ``chosen_kg_id``, and what independent evidence says about it.
+
+    Mirrors the API's ``ResolutionCertificateModel``. Every field has a default so an older
+    server (or a mapping that failed before the certificate was assembled) still parses.
+
+    Notable values:
+        state:   ``"corroborated"`` | ``"uncorroborated"`` | ``"contradicted"`` |
+                 ``"unavailable"`` | ``"not_applicable"``. ``"contradicted"`` means a human
+                 should look, never that the resolver is wrong; ``"unavailable"`` means there
+                 was nothing to check against, which is unverifiable rather than wrong.
+        independent_of_selection: ``False`` when the independent source is the same registry
+                 that supplied the chosen node, so corroboration there would be circular.
+    """
+
+    state: str = "not_applicable"
+    structure_status: str = "not_applicable"
+    node_inchikey_blocks: list[str] = Field(default_factory=list)
+    comparison_rule: str = ""
+    equivalent_ids_lookup_ok: bool = True
+    selection_conflict: str | None = None
+    independent_source: str | None = None
+    independent_inchikey_block: str | None = None
+    independent_of_selection: bool | None = None
+    tier_b_outcome: str = "off"
+    lipid_resolution_level: str = "unavailable"
+    refusal_reason: str | None = None
+    refmet_availability: str = "not_queried"
+    refmet_source: str = "not_queried"
+    refmet_snapshot_version: str | None = None
+    tier_b_snapshot_version: str | None = None
+    provenance: dict[str, Any] = Field(default_factory=dict)
+
+
+class LipidResolution(BaseModel):
+    """Lipid hierarchy-aware resolution detail for ``chosen_kg_id``; ``None`` for non-lipid rows.
+
+    ``mapping_relation`` (``"exact"`` | ``"broad"`` | ``"narrow"`` | ``"unknown"``) is the
+    canonical successor of the flat ``chosen_kg_id_lipid_hint`` field: ``"broad"`` is exactly the
+    ``"lipid_generalized"`` case that hint marks.
+    """
+
+    query_lipid_level_asserted: str | None = None
+    query_lipid_level_effective: str | None = None
+    matched_lipid_level: str | None = None
+    mapping_relation: str = "unknown"
+    mapping_predicate: str | None = None
+    query_transformed: str | None = None
+    ambiguous: bool = False
+    candidate_structure_count: int | None = None
+    ambiguity_basis: str | None = None
+    goslin_dialect: str | None = None
+    goslin_formula: str | None = None
+    goslin_mass: float | None = None
+
+
+class KestrelRequestParams(BaseModel):
+    """The parameters actually sent for the passthrough rows, so a caller can reproduce the call."""
+
+    search_text: str = ""
+    limit: int = 0
+    category: str = ""
+    prefix: list[str] | None = None
+
+
+class KestrelSearchResult(BaseModel):
+    """Raw Kestrel passthrough rows for one search endpoint the pipeline used.
+
+    Present only when the request set ``kestrel_top_n``. Passthrough only: these rows never
+    affect ``chosen_kg_id``, ``assigned_ids`` or the certificate. ``rows`` holds the raw dicts
+    exactly as Kestrel returned them — no coercion, no null-filling, nothing added or dropped —
+    which is why they are typed as plain dicts rather than a model. They are UNTRUSTED external
+    data: any renderer must treat every field as unescaped and unverified.
+    """
+
+    endpoint: str = ""
+    request: KestrelRequestParams = Field(default_factory=KestrelRequestParams)
+    rows: list[dict[str, Any]] = Field(default_factory=list)
+    fetch_strategy: str = "separate_call"
+    error: str | None = None
+
+
 class RawApiResult(BaseModel):
     """Direct mapping of the ``result`` object in the API response.
 
@@ -54,9 +136,17 @@ class RawApiResult(BaseModel):
     curies: list[str] = Field(default_factory=list)
     chosen_kg_id: str | None = None
     chosen_kg_id_review: str | None = None
+    chosen_kg_id_lipid_hint: str | None = None
+    resolution_certificate: ResolutionCertificate | None = None
+    lipid_resolution: LipidResolution | None = None
+    refmet_availability: str = "not_queried"
+    refmet_source: str = "not_queried"
+    refmet_snapshot_version: str | None = None
+    tier_b_snapshot_version: str | None = None
     kg_equivalent_ids: dict[str, list[str]] = Field(default_factory=dict)
     kg_ids: dict[str, list[str]] = Field(default_factory=dict)
     assigned_ids: dict[str, dict[str, dict[str, Any]]] = Field(default_factory=dict)
+    kestrel_results: list[KestrelSearchResult] | None = None
     error: str | None = None
 
 
@@ -77,7 +167,11 @@ class BatchMappingResponse(BaseModel):
 
     results: list[RawApiResult] = Field(default_factory=list)
     metadata: ApiMetadata = Field(default_factory=ApiMetadata)
-    summary: dict[str, int] = Field(default_factory=dict)
+    # Values are NOT uniformly ints: the API types this as ``{str: int | {str: int}}`` and returns
+    # a nested ``refmet_source_counts`` map alongside the scalar tallies. Typing this as a flat
+    # ``dict[str, int]`` made the whole batch response fail validation, which the batch loop then
+    # converted into a per-entity error for every record in the chunk.
+    summary: dict[str, Any] = Field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -171,6 +265,13 @@ class MappingResult(BaseModel):
     confidence_score: float | None = None
     identifiers: dict[str, list[str]] = Field(default_factory=dict)
     kg_equivalent_ids: dict[str, list[str]] = Field(default_factory=dict)
+    certificate: ResolutionCertificate | None = None
+    lipid_resolution: LipidResolution | None = None
+    refmet_availability: str = "not_queried"
+    refmet_source: str = "not_queried"
+    refmet_snapshot_version: str | None = None
+    tier_b_snapshot_version: str | None = None
+    kestrel_results: list[KestrelSearchResult] | None = None
     hmdb_hint: str | None = None
     error: str | None = None
     raw_response: RawApiResponse | None = None
@@ -275,6 +376,15 @@ class MappingResult(BaseModel):
         base["chosen_kg_id"] = r.chosen_kg_id
         base["chosen_kg_id_review"] = r.chosen_kg_id_review
         base["kg_equivalent_ids"] = dict(r.kg_equivalent_ids)
+        base["certificate"] = r.resolution_certificate
+        base["lipid_resolution"] = r.lipid_resolution
+        base["refmet_availability"] = r.refmet_availability
+        base["refmet_source"] = r.refmet_source
+        # Batch and dataset-stream results carry no raw_response, so a field parsed into
+        # RawApiResult but not copied here is unreachable for those callers.
+        base["refmet_snapshot_version"] = r.refmet_snapshot_version
+        base["tier_b_snapshot_version"] = r.tier_b_snapshot_version
+        base["kestrel_results"] = r.kestrel_results
 
         # Flatten assigned_ids → {vocab: [code, ...]} and extract best score
         identifiers: dict[str, list[str]] = {}
@@ -317,6 +427,15 @@ class MappingResult(BaseModel):
             result.ids_for("refmet_id")  # ["RM0129894"]
         """
         return self.identifiers.get(vocab, [])
+
+    @property
+    def refusal_reason(self) -> str | None:
+        """Why the resolver refused this entity, when it did. ``None`` without a certificate.
+
+        Distinct from :attr:`error`: an error means the call failed, a refusal means the
+        pipeline ran and declined to assert an answer.
+        """
+        return self.certificate.refusal_reason if self.certificate is not None else None
 
     @property
     def confidence_tier(self) -> str:

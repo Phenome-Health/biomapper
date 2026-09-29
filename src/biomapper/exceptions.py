@@ -8,7 +8,8 @@ class BioMapperError(Exception):
 
 
 class BioMapperAuthError(BioMapperError):
-    """Raised when the API key is missing or rejected (HTTP 401/403)."""
+    """Raised on HTTP 401/403: the deployment requires a key and none was sent, or the key sent
+    was rejected. The message says which."""
 
 
 class BioMapperRateLimitError(BioMapperError):
@@ -36,4 +37,5 @@ class BioMapperTimeoutError(BioMapperError):
 
 
 class BioMapperConfigError(BioMapperError):
-    """Raised for invalid client configuration (missing API key, bad URL, etc.)."""
+    """Raised for invalid client configuration, such as an explicit ``api_key`` together with
+    ``anonymous=True``. A missing key is not an error: the client is keyless by default."""

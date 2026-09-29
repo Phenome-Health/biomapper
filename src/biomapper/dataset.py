@@ -68,8 +68,8 @@ def map_dataset_file_sync(
                              not know the row count. Notebook authors and
                              UI callers that have already parsed the file
                              should pass the row count here.
-        api_key:             API key (falls back to ``BIOMAPPER_API_KEY``
-                             env var).
+        api_key:             Optional API key (falls back to ``BIOMAPPER_API_KEY``
+                             env var; keyless when neither is set).
         base_url:            Override the default API base URL.
         timeout:             Per-phase request timeout. Accepts a float
                              (applied to every phase) or an
