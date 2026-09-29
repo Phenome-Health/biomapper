@@ -5,6 +5,33 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.5.5] - unreleased
+
+### Added
+
+- **`harmonize()` can link by name as well as by identifier.** Two resolved entities whose keys
+  match link even when resolution put them on different nodes, closing the case-split gap
+  (`acetylcarnitine (c2)` vs `acetylcarnitine (C2)` resolved to HMDB:HMDB0000201 and RM:0154009
+  with no shared identifier). This reverses the earlier "identifier-set intersection, never string
+  matching" rule. Exact matches after whitespace normalization always link; casefold-only matches
+  link unless either name is `NAME_CASEFOLD_MIN_LENGTH_EXCLUSIVE` (4) characters or shorter, in
+  which case the pair is listed in `HarmonizationResult.name_match_withheld` instead (Co vs CO). No fuzzy
+  or punctuation matching; unresolved and errored entities never link by name. **Opt-in** with
+  `link_by_name=True` (default `False`, which reproduces identifier-only linking exactly), and
+  currently intended for small-molecule / metabolite panels; other entity types are pending
+  review of case-sensitive naming conventions.
+- **Every `Link` records its basis**: `node`, `identifier`, `name_exact` or `name_casefold`
+  (strongest first, `Link.basis`), plus every basis that applies (`Link.bases`) and
+  `Link.name_only`. `summary()` gains `links_by_basis`, `n_name_only_links` and
+  `n_name_match_withheld`; these are reserved and cannot be used as cohort labels.
+- `link_by_intersection` is unchanged, so the cross-cohort benchmark's per-run agreement check
+  against it is unaffected.
+
+### Documentation
+
+- The client docstring and README now say a configured key is sent unless `anonymous=True` is
+  passed, rather than "always sent".
+
 ## [1.5.4] - 2026-09-28
 
 ### Added
