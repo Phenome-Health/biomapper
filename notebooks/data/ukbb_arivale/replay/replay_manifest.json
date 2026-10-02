@@ -1,0 +1,50 @@
+{
+ "metabolites": {
+  "run": "ukbb_arivale_metabolites_20260927T021902Z",
+  "entries": 2081,
+  "sha256": "63f26d49223b50120178b4d41af421fbfb0f55b492246be2e5914f70f71be541",
+  "bytes": 3610080,
+  "inputs": {
+   "ukbb": {
+    "file": "metabolites_ukbb_ukbb_nmr_meta.tsv",
+    "sha256": "931612656f6d1c83f50478495fdbcdc9f2f5694ddc661a074022c6ac5e406bf4"
+   },
+   "arivale": {
+    "file": "metabolites_arivale_metabolomics_metadata.tsv",
+    "sha256": "a086b6fdf5957dce0a5331a6e245cd7fe645f048febb8d565268497b464fa264"
+   }
+  }
+ },
+ "proteins": {
+  "run": "ukbb_arivale_proteins_20260927T044016Z",
+  "entries": 5967,
+  "sha256": "58a2562259b9f29e122a7371b08a63633fdd4e2066ca4effa50a12178a8d4f4d",
+  "bytes": 9699276,
+  "inputs": {
+   "ukbb": {
+    "file": "proteins_ukbb_ukbb_protein_meta.tsv",
+    "sha256": "3a19ddcbb4e77321235a34201ace039669d619cc40368cac4df2652319f7f416"
+   },
+   "arivale": {
+    "file": "proteins_arivale_proteomics_metadata.tsv",
+    "sha256": "92dae79d144ab042d44f5f388132d00ea77e454494198aed79c3987a60bd4413"
+   }
+  }
+ },
+ "labs": {
+  "run": "ukbb_arivale_labs_20260928T221354Z",
+  "entries": 274,
+  "sha256": "15f38d47b325625c6d7443dffe2a2683117f4ffb2b7d18f58b5e713040dba8e3",
+  "bytes": 360598,
+  "inputs": {
+   "ukbb": {
+    "file": "labs_ukbb_ukbb_chemistry_full_20250924.tsv",
+    "sha256": "1451b3f20bfbd06c59497089351e8ab4894efab1c014131342164bf8ffea5953"
+   },
+   "arivale": {
+    "file": "labs_arivale_chemistries_metadata.tsv",
+    "sha256": "e04c2d50cad9623cd2747a61cafc707ff5c64314a448f6438e0ca6f9260e78bf"
+   }
+  }
+ }
+}

@@ -1,0 +1,252 @@
+field_id	title	Group	Subgroup
+23400	Total cholesterol	Cholesterol	
+23401	Total cholesterol minus HDL-C	Cholesterol	
+23402	Remnant cholesterol (non-HDL, non-LDL -cholesterol)	Cholesterol	
+23403	VLDL cholesterol	Cholesterol	
+23404	Clinical LDL cholesterol	Cholesterol	
+23405	LDL cholesterol	Cholesterol	
+23406	HDL cholesterol	Cholesterol	
+23407	Total triglycerides	Triglycerides	
+23408	Triglycerides in VLDL	Triglycerides	
+23409	Triglycerides in LDL	Triglycerides	
+23410	Triglycerides in HDL	Triglycerides	
+23411	Total phospholipids in lipoprotein particles	Phospholipids	
+23412	Phospholipids in VLDL	Phospholipids	
+23413	Phospholipids in LDL	Phospholipids	
+23414	Phospholipids in HDL	Phospholipids	
+23415	Total esterified cholesterol	Cholesteryl esters	
+23416	Cholesteryl esters in VLDL	Cholesteryl esters	
+23417	Cholesteryl esters in LDL	Cholesteryl esters	
+23418	Cholesteryl esters in HDL	Cholesteryl esters	
+23419	Total free cholesterol	Free cholesterol	
+23420	Free cholesterol in VLDL	Free cholesterol	
+23421	Free cholesterol in LDL	Free cholesterol	
+23422	Free cholesterol in HDL	Free cholesterol	
+23423	Total lipids in lipoprotein particles	Total lipids	
+23424	Total lipids in VLDL	Total lipids	
+23425	Total lipids in LDL	Total lipids	
+23426	Total lipids in HDL	Total lipids	
+23427	Total concentration of lipoprotein particles	Lipoprotein particle concentrations	
+23428	Concentration of VLDL particles	Lipoprotein particle concentrations	
+23429	Concentration of LDL particles	Lipoprotein particle concentrations	
+23430	Concentration of HDL particles	Lipoprotein particle concentrations	
+23431	Average diameter for VLDL particles	Lipoprotein particle sizes	
+23432	Average diameter for LDL particles	Lipoprotein particle sizes	
+23433	Average diameter for HDL particles	Lipoprotein particle sizes	
+23434	Phosphoglycerides	Other lipids	
+23435	Ratio of triglycerides to phosphoglycerides	Other lipids	
+23436	Total cholines	Other lipids	
+23437	Phosphatidylcholines	Other lipids	
+23438	Sphingomyelins	Other lipids	
+23439	Apolipoprotein B	Apolipoproteins	
+23440	Apolipoprotein A1	Apolipoproteins	
+23441	Ratio of apolipoprotein B to apolipoprotein A1	Apolipoproteins	
+23442	Total fatty acids	Fatty acids	
+23443	Degree of unsaturation	Fatty acids	
+23444	Omega-3 fatty acids	Fatty acids	
+23445	Omega-6 fatty acids	Fatty acids	
+23446	Polyunsaturated fatty acids	Fatty acids	
+23447	Monounsaturated fatty acids	Fatty acids	
+23448	Saturated fatty acids	Fatty acids	
+23449	Linoleic acid	Fatty acids	
+23450	Docosahexaenoic acid	Fatty acids	
+23451	Ratio of omega-3 fatty acids to total fatty acids	Fatty acids	Fatty acid ratios
+23452	Ratio of omega-6 fatty acids to total fatty acids	Fatty acids	Fatty acid ratios
+23453	Ratio of polyunsaturated fatty acids to total fatty acids	Fatty acids	Fatty acid ratios
+23454	Ratio of monounsaturated fatty acids to total fatty acids	Fatty acids	Fatty acid ratios
+23455	Ratio of saturated fatty acids to total fatty acids	Fatty acids	Fatty acid ratios
+23456	Ratio of linoleic acid to total fatty acids	Fatty acids	Fatty acid ratios
+23457	Ratio of docosahexaenoic acid to total fatty acids	Fatty acids	Fatty acid ratios
+23458	Ratio of polyunsaturated fatty acids to monounsaturated fatty acids	Fatty acids	Fatty acid ratios
+23459	Ratio of omega-6 fatty acids to omega-3 fatty acids	Fatty acids	Fatty acid ratios
+23460	Alanine	Amino acids	
+23461	Glutamine	Amino acids	
+23462	Glycine	Amino acids	
+23463	Histidine	Amino acids	
+23464	Total concentration of branched-chain amino acids (leucine + isoleucine + valine)	Amino acids	Branched-chain amino acids
+23465	Isoleucine	Amino acids	Branched-chain amino acids
+23466	Leucine	Amino acids	Branched-chain amino acids
+23467	Valine	Amino acids	Branched-chain amino acids
+23468	Phenylalanine	Amino acids	Aromatic amino acids
+23469	Tyrosine	Amino acids	Aromatic amino acids
+23470	Glucose	Glycolysis related metabolites	
+23471	Lactate	Glycolysis related metabolites	
+23472	Pyruvate	Glycolysis related metabolites	
+23473	Citrate	Glycolysis related metabolites	
+23474	3-Hydroxybutyrate	Ketone bodies	
+23475	Acetate	Ketone bodies	
+23476	Acetoacetate	Ketone bodies	
+23477	Acetone	Ketone bodies	
+23478	Creatinine	Fluid balance	
+23479	Albumin	Fluid balance	
+23480	Glycoprotein acetyls	Inflammation	
+23481	Concentration of chylomicrons and extremely large VLDL particles	Lipoprotein subclasses	Chylomicrons and extremely large VLDL (particle diameters from 75 nm upwards)
+23482	Total lipids in chylomicrons and extremely large VLDL	Lipoprotein subclasses	Chylomicrons and extremely large VLDL (particle diameters from 75 nm upwards)
+23483	Phospholipids in chylomicrons and extremely large VLDL	Lipoprotein subclasses	Chylomicrons and extremely large VLDL (particle diameters from 75 nm upwards)
+23484	Cholesterol in chylomicrons and extremely large VLDL	Lipoprotein subclasses	Chylomicrons and extremely large VLDL (particle diameters from 75 nm upwards)
+23485	Cholesteryl esters in chylomicrons and extremely large VLDL	Lipoprotein subclasses	Chylomicrons and extremely large VLDL (particle diameters from 75 nm upwards)
+23486	Free cholesterol in chylomicrons and extremely large VLDL	Lipoprotein subclasses	Chylomicrons and extremely large VLDL (particle diameters from 75 nm upwards)
+23487	Triglycerides in chylomicrons and extremely large VLDL	Lipoprotein subclasses	Chylomicrons and extremely large VLDL (particle diameters from 75 nm upwards)
+23488	Concentration of very large VLDL particles	Lipoprotein subclasses	Very large VLDL (average diameter 64 nm)
+23489	Total lipids in very large VLDL	Lipoprotein subclasses	Very large VLDL (average diameter 64 nm)
+23490	Phospholipids in very large VLDL	Lipoprotein subclasses	Very large VLDL (average diameter 64 nm)
+23491	Cholesterol in very large VLDL	Lipoprotein subclasses	Very large VLDL (average diameter 64 nm)
+23492	Cholesteryl esters in very large VLDL	Lipoprotein subclasses	Very large VLDL (average diameter 64 nm)
+23493	Free cholesterol in very large VLDL	Lipoprotein subclasses	Very large VLDL (average diameter 64 nm)
+23494	Triglycerides in very large VLDL	Lipoprotein subclasses	Very large VLDL (average diameter 64 nm)
+23495	Concentration of large VLDL particles	Lipoprotein subclasses	Large VLDL (average diameter 53.6 nm)
+23496	Total lipids in large VLDL	Lipoprotein subclasses	Large VLDL (average diameter 53.6 nm)
+23497	Phospholipids in large VLDL	Lipoprotein subclasses	Large VLDL (average diameter 53.6 nm)
+23498	Cholesterol in large VLDL	Lipoprotein subclasses	Large VLDL (average diameter 53.6 nm)
+23499	Cholesteryl esters in large VLDL	Lipoprotein subclasses	Large VLDL (average diameter 53.6 nm)
+23500	Free cholesterol in large VLDL	Lipoprotein subclasses	Large VLDL (average diameter 53.6 nm)
+23501	Triglycerides in large VLDL	Lipoprotein subclasses	Large VLDL (average diameter 53.6 nm)
+23502	Concentration of medium VLDL particles	Lipoprotein subclasses	Medium VLDL (average diameter 44.5 nm)
+23503	Total lipids in medium VLDL	Lipoprotein subclasses	Medium VLDL (average diameter 44.5 nm)
+23504	Phospholipids in medium VLDL	Lipoprotein subclasses	Medium VLDL (average diameter 44.5 nm)
+23505	Cholesterol in medium VLDL	Lipoprotein subclasses	Medium VLDL (average diameter 44.5 nm)
+23506	Cholesteryl esters in medium VLDL	Lipoprotein subclasses	Medium VLDL (average diameter 44.5 nm)
+23507	Free cholesterol in medium VLDL	Lipoprotein subclasses	Medium VLDL (average diameter 44.5 nm)
+23508	Triglycerides in medium VLDL	Lipoprotein subclasses	Medium VLDL (average diameter 44.5 nm)
+23509	Concentration of small VLDL particles	Lipoprotein subclasses	Small VLDL (average diameter 36.8 nm)
+23510	Total lipids in small VLDL	Lipoprotein subclasses	Small VLDL (average diameter 36.8 nm)
+23511	Phospholipids in small VLDL	Lipoprotein subclasses	Small VLDL (average diameter 36.8 nm)
+23512	Cholesterol in small VLDL	Lipoprotein subclasses	Small VLDL (average diameter 36.8 nm)
+23513	Cholesteryl esters in small VLDL	Lipoprotein subclasses	Small VLDL (average diameter 36.8 nm)
+23514	Free cholesterol in small VLDL	Lipoprotein subclasses	Small VLDL (average diameter 36.8 nm)
+23515	Triglycerides in small VLDL	Lipoprotein subclasses	Small VLDL (average diameter 36.8 nm)
+23516	Concentration of very small VLDL particles	Lipoprotein subclasses	Very small VLDL (average diameter 31.3 nm)
+23517	Total lipids in very small VLDL	Lipoprotein subclasses	Very small VLDL (average diameter 31.3 nm)
+23518	Phospholipids in very small VLDL	Lipoprotein subclasses	Very small VLDL (average diameter 31.3 nm)
+23519	Cholesterol in very small VLDL	Lipoprotein subclasses	Very small VLDL (average diameter 31.3 nm)
+23520	Cholesteryl esters in very small VLDL	Lipoprotein subclasses	Very small VLDL (average diameter 31.3 nm)
+23521	Free cholesterol in very small VLDL	Lipoprotein subclasses	Very small VLDL (average diameter 31.3 nm)
+23522	Triglycerides in very small VLDL	Lipoprotein subclasses	Very small VLDL (average diameter 31.3 nm)
+23523	Concentration of IDL particles	Lipoprotein subclasses	IDL (average diameter 28.6 nm)
+23524	Total lipids in IDL	Lipoprotein subclasses	IDL (average diameter 28.6 nm)
+23525	Phospholipids in IDL	Lipoprotein subclasses	IDL (average diameter 28.6 nm)
+23526	Cholesterol in IDL	Lipoprotein subclasses	IDL (average diameter 28.6 nm)
+23527	Cholesteryl esters in IDL	Lipoprotein subclasses	IDL (average diameter 28.6 nm)
+23528	Free cholesterol in IDL	Lipoprotein subclasses	IDL (average diameter 28.6 nm)
+23529	Triglycerides in IDL	Lipoprotein subclasses	IDL (average diameter 28.6 nm)
+23530	Concentration of large LDL particles	Lipoprotein subclasses	Large LDL (average diameter 25.5 nm)
+23531	Total lipids in large LDL	Lipoprotein subclasses	Large LDL (average diameter 25.5 nm)
+23532	Phospholipids in large LDL	Lipoprotein subclasses	Large LDL (average diameter 25.5 nm)
+23533	Cholesterol in large LDL	Lipoprotein subclasses	Large LDL (average diameter 25.5 nm)
+23534	Cholesteryl esters in large LDL	Lipoprotein subclasses	Large LDL (average diameter 25.5 nm)
+23535	Free cholesterol in large LDL	Lipoprotein subclasses	Large LDL (average diameter 25.5 nm)
+23536	Triglycerides in large LDL	Lipoprotein subclasses	Large LDL (average diameter 25.5 nm)
+23537	Concentration of medium LDL particles	Lipoprotein subclasses	Medium LDL (average diameter 23 nm)
+23538	Total lipids in medium LDL	Lipoprotein subclasses	Medium LDL (average diameter 23 nm)
+23539	Phospholipids in medium LDL	Lipoprotein subclasses	Medium LDL (average diameter 23 nm)
+23540	Cholesterol in medium LDL	Lipoprotein subclasses	Medium LDL (average diameter 23 nm)
+23541	Cholesteryl esters in medium LDL	Lipoprotein subclasses	Medium LDL (average diameter 23 nm)
+23542	Free cholesterol in medium LDL	Lipoprotein subclasses	Medium LDL (average diameter 23 nm)
+23543	Triglycerides in medium LDL	Lipoprotein subclasses	Medium LDL (average diameter 23 nm)
+23544	Concentration of small LDL particles	Lipoprotein subclasses	Small LDL (average diameter 18.7 nm)
+23545	Total lipids in small LDL	Lipoprotein subclasses	Small LDL (average diameter 18.7 nm)
+23546	Phospholipids in small LDL	Lipoprotein subclasses	Small LDL (average diameter 18.7 nm)
+23547	Cholesterol in small LDL	Lipoprotein subclasses	Small LDL (average diameter 18.7 nm)
+23548	Cholesteryl esters in small LDL	Lipoprotein subclasses	Small LDL (average diameter 18.7 nm)
+23549	Free cholesterol in small LDL	Lipoprotein subclasses	Small LDL (average diameter 18.7 nm)
+23550	Triglycerides in small LDL	Lipoprotein subclasses	Small LDL (average diameter 18.7 nm)
+23551	Concentration of very large HDL particles	Lipoprotein subclasses	Very large HDL (average diameter 14.3 nm)
+23552	Total lipids in very large HDL	Lipoprotein subclasses	Very large HDL (average diameter 14.3 nm)
+23553	Phospholipids in very large HDL	Lipoprotein subclasses	Very large HDL (average diameter 14.3 nm)
+23554	Cholesterol in very large HDL	Lipoprotein subclasses	Very large HDL (average diameter 14.3 nm)
+23555	Cholesteryl esters in very large HDL	Lipoprotein subclasses	Very large HDL (average diameter 14.3 nm)
+23556	Free cholesterol in very large HDL	Lipoprotein subclasses	Very large HDL (average diameter 14.3 nm)
+23557	Triglycerides in very large HDL	Lipoprotein subclasses	Very large HDL (average diameter 14.3 nm)
+23558	Concentration of large HDL particles	Lipoprotein subclasses	Large HDL (average diameter 12.1 nm)
+23559	Total lipids in large HDL	Lipoprotein subclasses	Large HDL (average diameter 12.1 nm)
+23560	Phospholipids in large HDL	Lipoprotein subclasses	Large HDL (average diameter 12.1 nm)
+23561	Cholesterol in large HDL	Lipoprotein subclasses	Large HDL (average diameter 12.1 nm)
+23562	Cholesteryl esters in large HDL	Lipoprotein subclasses	Large HDL (average diameter 12.1 nm)
+23563	Free cholesterol in large HDL	Lipoprotein subclasses	Large HDL (average diameter 12.1 nm)
+23564	Triglycerides in large HDL	Lipoprotein subclasses	Large HDL (average diameter 12.1 nm)
+23565	Concentration of medium HDL particles	Lipoprotein subclasses	Medium HDL (average diameter 10.9 nm)
+23566	Total lipids in medium HDL	Lipoprotein subclasses	Medium HDL (average diameter 10.9 nm)
+23567	Phospholipids in medium HDL	Lipoprotein subclasses	Medium HDL (average diameter 10.9 nm)
+23568	Cholesterol in medium HDL	Lipoprotein subclasses	Medium HDL (average diameter 10.9 nm)
+23569	Cholesteryl esters in medium HDL	Lipoprotein subclasses	Medium HDL (average diameter 10.9 nm)
+23570	Free cholesterol in medium HDL	Lipoprotein subclasses	Medium HDL (average diameter 10.9 nm)
+23571	Triglycerides in medium HDL	Lipoprotein subclasses	Medium HDL (average diameter 10.9 nm)
+23572	Concentration of small HDL particles	Lipoprotein subclasses	Small HDL (average diameter 8.7 nm)
+23573	Total lipids in small HDL	Lipoprotein subclasses	Small HDL (average diameter 8.7 nm)
+23574	Phospholipids in small HDL	Lipoprotein subclasses	Small HDL (average diameter 8.7 nm)
+23575	Cholesterol in small HDL	Lipoprotein subclasses	Small HDL (average diameter 8.7 nm)
+23576	Cholesteryl esters in small HDL	Lipoprotein subclasses	Small HDL (average diameter 8.7 nm)
+23577	Free cholesterol in small HDL	Lipoprotein subclasses	Small HDL (average diameter 8.7 nm)
+23578	Triglycerides in small HDL	Lipoprotein subclasses	Small HDL (average diameter 8.7 nm)
+23579	Phospholipids to total lipids ratio in chylomicrons and extremely large VLDL	Relative lipoprotein lipid concentrations	Chylomicrons and extremely large VLDL ratios
+23580	Cholesterol to total lipids ratio in chylomicrons and extremely large VLDL	Relative lipoprotein lipid concentrations	Chylomicrons and extremely large VLDL ratios
+23581	Cholesteryl esters to total lipids ratio in chylomicrons and extremely large VLDL	Relative lipoprotein lipid concentrations	Chylomicrons and extremely large VLDL ratios
+23582	Free cholesterol to total lipids ratio in chylomicrons and extremely large VLDL	Relative lipoprotein lipid concentrations	Chylomicrons and extremely large VLDL ratios
+23583	Triglycerides to total lipids ratio in chylomicrons and extremely large VLDL	Relative lipoprotein lipid concentrations	Chylomicrons and extremely large VLDL ratios
+23584	Phospholipids to total lipids ratio in very large VLDL	Relative lipoprotein lipid concentrations	Very large VLDL ratios
+23585	Cholesterol to total lipids ratio in very large VLDL	Relative lipoprotein lipid concentrations	Very large VLDL ratios
+23586	Cholesteryl esters to total lipids ratio in very large VLDL	Relative lipoprotein lipid concentrations	Very large VLDL ratios
+23587	Free cholesterol to total lipids ratio in very large VLDL	Relative lipoprotein lipid concentrations	Very large VLDL ratios
+23588	Triglycerides to total lipids ratio in very large VLDL	Relative lipoprotein lipid concentrations	Very large VLDL ratios
+23589	Phospholipids to total lipids ratio in large VLDL	Relative lipoprotein lipid concentrations	Large VLDL ratios
+23590	Cholesterol to total lipids ratio in large VLDL	Relative lipoprotein lipid concentrations	Large VLDL ratios
+23591	Cholesteryl esters to total lipids ratio in large VLDL	Relative lipoprotein lipid concentrations	Large VLDL ratios
+23592	Free cholesterol to total lipids ratio in large VLDL	Relative lipoprotein lipid concentrations	Large VLDL ratios
+23593	Triglycerides to total lipids ratio in large VLDL	Relative lipoprotein lipid concentrations	Large VLDL ratios
+23594	Phospholipids to total lipids ratio in medium VLDL	Relative lipoprotein lipid concentrations	Medium VLDL ratios
+23595	Cholesterol to total lipids ratio in medium VLDL	Relative lipoprotein lipid concentrations	Medium VLDL ratios
+23596	Cholesteryl esters to total lipids ratio in medium VLDL	Relative lipoprotein lipid concentrations	Medium VLDL ratios
+23597	Free cholesterol to total lipids ratio in medium VLDL	Relative lipoprotein lipid concentrations	Medium VLDL ratios
+23598	Triglycerides to total lipids ratio in medium VLDL	Relative lipoprotein lipid concentrations	Medium VLDL ratios
+23599	Phospholipids to total lipids ratio in small VLDL	Relative lipoprotein lipid concentrations	Small VLDL ratios
+23600	Cholesterol to total lipids ratio in small VLDL	Relative lipoprotein lipid concentrations	Small VLDL ratios
+23601	Cholesteryl esters to total lipids ratio in small VLDL	Relative lipoprotein lipid concentrations	Small VLDL ratios
+23602	Free cholesterol to total lipids ratio in small VLDL	Relative lipoprotein lipid concentrations	Small VLDL ratios
+23603	Triglycerides to total lipids ratio in small VLDL	Relative lipoprotein lipid concentrations	Small VLDL ratios
+23604	Phospholipids to total lipids ratio in very small VLDL	Relative lipoprotein lipid concentrations	Very small VLDL ratios
+23605	Cholesterol to total lipids ratio in very small VLDL	Relative lipoprotein lipid concentrations	Very small VLDL ratios
+23606	Cholesteryl esters to total lipids ratio in very small VLDL	Relative lipoprotein lipid concentrations	Very small VLDL ratios
+23607	Free cholesterol to total lipids ratio in very small VLDL	Relative lipoprotein lipid concentrations	Very small VLDL ratios
+23608	Triglycerides to total lipids ratio in very small VLDL	Relative lipoprotein lipid concentrations	Very small VLDL ratios
+23609	Phospholipids to total lipids ratio in IDL	Relative lipoprotein lipid concentrations	IDL ratios
+23610	Cholesterol to total lipids ratio in IDL	Relative lipoprotein lipid concentrations	IDL ratios
+23611	Cholesteryl esters to total lipids ratio in IDL	Relative lipoprotein lipid concentrations	IDL ratios
+23612	Free cholesterol to total lipids ratio in IDL	Relative lipoprotein lipid concentrations	IDL ratios
+23613	Triglycerides to total lipids ratio in IDL	Relative lipoprotein lipid concentrations	IDL ratios
+23614	Phospholipids to total lipids ratio in large LDL	Relative lipoprotein lipid concentrations	Large LDL ratios
+23615	Cholesterol to total lipids ratio in large LDL	Relative lipoprotein lipid concentrations	Large LDL ratios
+23616	Cholesteryl esters to total lipids ratio in large LDL	Relative lipoprotein lipid concentrations	Large LDL ratios
+23617	Free cholesterol to total lipids ratio in large LDL	Relative lipoprotein lipid concentrations	Large LDL ratios
+23618	Triglycerides to total lipids ratio in large LDL	Relative lipoprotein lipid concentrations	Large LDL ratios
+23619	Phospholipids to total lipids ratio in medium LDL	Relative lipoprotein lipid concentrations	Medium LDL ratios
+23620	Cholesterol to total lipids ratio in medium LDL	Relative lipoprotein lipid concentrations	Medium LDL ratios
+23621	Cholesteryl esters to total lipids ratio in medium LDL	Relative lipoprotein lipid concentrations	Medium LDL ratios
+23622	Free cholesterol to total lipids ratio in medium LDL	Relative lipoprotein lipid concentrations	Medium LDL ratios
+23623	Triglycerides to total lipids ratio in medium LDL	Relative lipoprotein lipid concentrations	Medium LDL ratios
+23624	Phospholipids to total lipids ratio in small LDL	Relative lipoprotein lipid concentrations	Small LDL ratios
+23625	Cholesterol to total lipids ratio in small LDL	Relative lipoprotein lipid concentrations	Small LDL ratios
+23626	Cholesteryl esters to total lipids ratio in small LDL	Relative lipoprotein lipid concentrations	Small LDL ratios
+23627	Free cholesterol to total lipids ratio in small LDL	Relative lipoprotein lipid concentrations	Small LDL ratios
+23628	Triglycerides to total lipids ratio in small LDL	Relative lipoprotein lipid concentrations	Small LDL ratios
+23629	Phospholipids to total lipids ratio in very large HDL	Relative lipoprotein lipid concentrations	Very large HDL ratios
+23630	Cholesterol to total lipids ratio in very large HDL	Relative lipoprotein lipid concentrations	Very large HDL ratios
+23631	Cholesteryl esters to total lipids ratio in very large HDL	Relative lipoprotein lipid concentrations	Very large HDL ratios
+23632	Free cholesterol to total lipids ratio in very large HDL	Relative lipoprotein lipid concentrations	Very large HDL ratios
+23633	Triglycerides to total lipids ratio in very large HDL	Relative lipoprotein lipid concentrations	Very large HDL ratios
+23634	Phospholipids to total lipids ratio in large HDL	Relative lipoprotein lipid concentrations	Large HDL ratios
+23635	Cholesterol to total lipids ratio in large HDL	Relative lipoprotein lipid concentrations	Large HDL ratios
+23636	Cholesteryl esters to total lipids ratio in large HDL	Relative lipoprotein lipid concentrations	Large HDL ratios
+23637	Free cholesterol to total lipids ratio in large HDL	Relative lipoprotein lipid concentrations	Large HDL ratios
+23638	Triglycerides to total lipids ratio in large HDL	Relative lipoprotein lipid concentrations	Large HDL ratios
+23639	Phospholipids to total lipids ratio in medium HDL	Relative lipoprotein lipid concentrations	Medium HDL ratios
+23640	Cholesterol to total lipids ratio in medium HDL	Relative lipoprotein lipid concentrations	Medium HDL ratios
+23641	Cholesteryl esters to total lipids ratio in medium HDL	Relative lipoprotein lipid concentrations	Medium HDL ratios
+23642	Free cholesterol to total lipids ratio in medium HDL	Relative lipoprotein lipid concentrations	Medium HDL ratios
+23643	Triglycerides to total lipids ratio in medium HDL	Relative lipoprotein lipid concentrations	Medium HDL ratios
+23644	Phospholipids to total lipids ratio in small HDL	Relative lipoprotein lipid concentrations	Small HDL ratios
+23645	Cholesterol to total lipids ratio in small HDL	Relative lipoprotein lipid concentrations	Small HDL ratios
+23646	Cholesteryl esters to total lipids ratio in small HDL	Relative lipoprotein lipid concentrations	Small HDL ratios
+23647	Free cholesterol to total lipids ratio in small HDL	Relative lipoprotein lipid concentrations	Small HDL ratios
+23648	Triglycerides to total lipids ratio in small HDL	Relative lipoprotein lipid concentrations	Small HDL ratios
+20280	Glucose-lactate	Glycolysis related metabolites	
+20281	Spectrometer-corrected alanine	Amino acids	
