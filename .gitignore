@@ -90,3 +90,6 @@ Thumbs.db
 
 # Local MCP server config: machine-specific absolute paths, per-developer tooling choice.
 .mcp.json
+
+# SOP notebook run outputs (written by default, not committed)
+notebooks/outputs/

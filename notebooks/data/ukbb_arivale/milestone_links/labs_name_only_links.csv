@@ -1,0 +1,32 @@
+ukbb_key,arivale_key,n_shared_curies,shared_curies
+30010|Red blood cell (erythrocyte) count,RED CELL COUNT|Red Blood Cell Count,2,SNOMEDCT:365625004|UMLS:C1287262
+30020|Haemoglobin concentration,MCHC|Mean Corpuscular Hemoglobin Concentration,3,EFO:0004528|NCIT:C139067|UMLS:C4528257
+30020|Haemoglobin concentration,MCH|Mean Corpuscular Hemoglobin,3,EFO:0004528|NCIT:C139067|UMLS:C4528257
+30040|Mean corpuscular volume,MCV|Mean Corpuscular Volume,3,MEDDRA:10026976|SNOMEDCT:365615009|UMLS:C0524587
+30050|Mean corpuscular haemoglobin,MCHC|Mean Corpuscular Hemoglobin Concentration,3,EFO:0004528|NCIT:C139067|UMLS:C4528257
+30050|Mean corpuscular haemoglobin,MCH|Mean Corpuscular Hemoglobin,3,EFO:0004528|NCIT:C139067|UMLS:C4528257
+30060|Mean corpuscular haemoglobin concentration,MCHC|Mean Corpuscular Hemoglobin Concentration,3,EFO:0004528|NCIT:C139067|UMLS:C4528257
+30060|Mean corpuscular haemoglobin concentration,MCH|Mean Corpuscular Hemoglobin,3,EFO:0004528|NCIT:C139067|UMLS:C4528257
+30070|Red blood cell (erythrocyte) distribution width,RDW|Red Blood Cell Distribution Width,1,UMLS:C1304746
+30080|Platelet count,PLATELET COUNT|Platelet Count,3,NCIT:C53266|UMLS:C1709566|UMLS:C6054183
+30090|Platelet crit,PLATELET COUNT THOUSAND|Platelets,1,LOINC:11125-2
+30100|Mean platelet (thrombocyte) volume,MPV|Mean Platelet Volume,1,LOINC:28542-9
+30140|Neutrophill count,NEUTROPHILS ABSOLUTE|Absolute Neutrophils,2,NCIT:C53271|UMLS:C1709221
+30140|Neutrophill count,TOTAL NEUTROPHILS AB|Absolute Total Neutrophils Count,2,NCIT:C53271|UMLS:C1709221
+30140|Neutrophill count,TOTAL NEUTROPHILS|Total Neutrophils,2,NCIT:C53271|UMLS:C1709221
+30150|Eosinophill count,EOSINOPHILS ABSOLUTE|Absolute Eosinophils Count,2,SNOMEDCT:365601007|UMLS:C0750879
+30160|Basophill count,BASOPHILS ABSOLUTE|Absolute Basophils Count,1,LOINC:76406-8
+30510|Creatinine (enzymatic) in urine,"CREATININE ENZ, SER|Creatinine",1,LOINC:20511-2
+30600|Albumin,ALBUMIN|Albumin,5,LOINC:LP31978-7|LOINC:LP31980-3|LOINC:LP99330-0|SNOMEDCT:52454007|UMLS:C2924187
+30610|Alkaline phosphatase,ALKALINE PHOSPHATASE|Alkaline Phosphatase,2,SNOMEDCT:365771003|UMLS:C0428332
+30660|Direct bilirubin,"BILIRUBIN, DIRECT|Direct Bilirubin",1,LOINC:14152-3
+30670|Urea,UREA NITROGEN|Urea,2,SNOMEDCT:365755003|UMLS:C0428275
+30680|Calcium,CALCIUM|Calcium,1,UMLS:C0428302
+30690|Cholesterol,"CHOLESTEROL, TOTAL|Total cholesterol",1,UMLS:C0543421
+30700|Creatinine,"CREATININE ENZ, SER|Creatinine",1,LOINC:20511-2
+30740|Glucose,GLUCOSE|Glucose,2,LOINC:LP435977-6|UMLS:C5781949
+30760|HDL cholesterol,HDL CHOL DIRECT|HDL cholesterol,2,LOINC:LP15489-5|UMLS:C2357172
+30840|Total bilirubin,"BILIRUBIN, TOTAL|Total Bilirubin",1,UMLS:C0368753
+30860|Total protein,"PROTEIN, TOTAL SERUM|Total Protein",1,UMLS:C1261360
+30870|Triglycerides,TRIGLYCERIDES|Triglycerides,2,SNOMEDCT:365795001|UMLS:C0428475
+30890|Vitamin D,"VITAMIN D, 25-OH TOT|Vitamin D",1,LOINC:1990-1

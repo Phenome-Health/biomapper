@@ -42,6 +42,7 @@ which versions reached the index; 1.5.0 and 1.5.1 are tagged *(not published)*.
 
 - [`notebooks/biomapper_tutorial.ipynb`](notebooks/biomapper_tutorial.ipynb): the harmonization protocol end to end, keyless and build-pinned: resolve two cohort panels, link them by identifier-only CURIE sets, and read a certified and a refused structural certificate.
 - [`notebooks/monti_overlap_benchmark.ipynb`](notebooks/monti_overlap_benchmark.ipynb): BioMapper vs Monti et al. 2026 on the NECS cross-cohort overlap, as linked-count coverage for four cohorts plus a structural certification of the NECS to Arivale links, replayed from a pinned run with a small live check.
+- [`notebooks/ukbb_arivale_harmonization_sop.ipynb`](notebooks/ukbb_arivale_harmonization_sop.ipynb): a standard operating procedure for harmonizing two cohorts with this package, worked on UK Biobank × Arivale (metabolites, proteins, clinical labs): inclusion rules, map, match, verify, and results asserted against the Activity 2 milestone, replayed offline from shipped panel metadata.
 
 ---
 

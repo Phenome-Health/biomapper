@@ -1,0 +1,342 @@
+field_id	field_name	description	category	subcategory	data_type	units	value_encoding	notes	participant_count	loinc_code	loinc_name	confidence_score	query_source	llm_reasoning	num_queries	top_5_loinc
+30000	White blood cell (leukocyte) count	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Continuous				479,014			0.0			0	
+30001	White blood cell (leukocyte) count freeze-thaw cycles	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Integer			474,561			0.0			0	
+30002	White blood cell (leukocyte) count acquisition time	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Time			479,014			0.0			0	
+30003	White blood cell (leukocyte) count device ID	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Text				479,014			0.0			0	
+30004	White blood cell (leukocyte) count acquisition route	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Categorical		Coding 2226		479,014			0.0			0	
+30005	Carotid Artery Ultrasound (MAT format)	image files from the carotid ultrasound imaging.	Clinical_Chemistry	Blood_Biochemistry	Text			Derived measure	79,129			0.0			0	
+30006	Invitation to complete online digestive health questionnaire, date sent	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Date	330,942			0.0			0	
+30007	Invitation to complete online experience of pain questionnaire, date sent	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Date				335,229			0.0			0	
+30008	Invitation to complete online food preferences questionnaire, date sent	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Date	330,182			0.0			0	
+30009	Invitation to complete online mental health questionnaire, date sent	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Date	332,409			0.0			0	
+30010	Red blood cell (erythrocyte) count	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Continuous				479,019			0.0			0	
+30011	Red blood cell (erythrocyte) count freeze-thaw cycles	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Integer			474,566			0.0			0	
+30012	Red blood cell (erythrocyte) count acquisition time	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Time			479,019			0.0			0	
+30013	Red blood cell (erythrocyte) count device ID	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Text				479,019			0.0			0	
+30014	Red blood cell (erythrocyte) count acquisition route	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Categorical		Coding 2226		479,019			0.0			0	
+30015	Field 30015	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Unknown							0.0	0
+30016	Field 30016	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Unknown							0.0	0
+30017	Field 30017	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Unknown							0.0	0
+30018	Field 30018	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Unknown							0.0	0
+30019	Field 30019	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Unknown							0.0	0
+30020	Haemoglobin concentration	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Continuous				479,018			0.0			0	
+30021	Haemoglobin concentration freeze-thaw cycles	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Integer				474,566			0.0			0	
+30022	Haemoglobin concentration acquisition time	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Time				479,018			0.0			0	
+30023	Haemoglobin concentration device ID	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Text				479,018			0.0			0	
+30024	Haemoglobin concentration acquisition route	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Categorical		Coding 2226		479,018			0.0			0	
+30025	Urine collection (imaging) sign-off timestamp	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Time				00.0			0	
+30026	Field 30026	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Unknown							0.0	0
+30027	Urine collection (imaging) duration	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Integer				0	0.0			0	
+30028	Number of timepoints for the task fMRI	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Integer				52,0960.0			0	
+30029	Reason cine file not available	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Categorical		Coding 2527		1,022			0.0			0	
+30030	Haematocrit percentage	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Continuous				479,019		0.0			0	
+30031	Haematocrit freeze-thaw cycles	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Integer				474,566		0.0			0	
+30032	Haematocrit acquisition time	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Time				479,019		0.0			0	
+30033	Haematocrit percentage device ID	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Text				479,019			0.0			0	
+30034	Haematocrit percentage acquisition route	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Categorical		Coding 2226		479,019			0.0			0	
+30035	Rate of ramp phase load increase (exercise test)	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Continuous		Derived measure	80,521			0.0			0	
+30036	Heart rate data used to estimate VO2max	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Categorical		Coding 2526	Derived measure	80,521			0.0			0	
+30037	Estimation model used to compute VO2max	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Categorical		Coding 2531	Derived measure	80,521			0.0			0	
+30038	V02max per kg bodyweight estimated from the exercise test	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Continuous	kg		Derived measure	80,521			0.0			0	
+30039	Field 30039	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Unknown							0.0	0
+30040	Mean corpuscular volume	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Continuous				479,018		0.0			0	
+30041	Mean corpuscular volume freeze-thaw cycles	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Integer				474,564			0.0			0	
+30042	Mean corpuscular volume acquisition time	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Time				479,018			0.0			0	
+30043	Mean corpuscular volume device ID	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Text				479,018			0.0			0	
+30044	Mean corpuscular volume acquisition route	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Categorical		Coding 2226		479,018			0.0			0	
+30045	Plate barcode (interim dataset)	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Text				416,518		0.0			0	
+30046	Sample well position on plate (interim dataset)	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Text				416,518			0.0			0	
+30047	Field 30047	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Unknown							0.0	0
+30048	Field 30048	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Unknown							0.0	0
+30049	Field 30049	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Unknown							0.0	0
+30050	Mean corpuscular haemoglobin	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Continuous				479,015			0.0			0	
+30051	Mean corpuscular haemoglobin freeze-thaw cycles	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Integer				474,563			0.0			0	
+30052	Mean corpuscular haemoglobin acquisition time	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Time				479,015			0.0			0	
+30053	Mean corpuscular haemoglobin device ID	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Text				479,015			0.0			0	
+30054	Mean corpuscular haemoglobin acquisition route	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Categorical		Coding 2226		479,015			0.0			0	
+30055	Incidental finding report made during Abdominal MRI scan process	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Categorical		Coding 1		1,394			0.0			0	
+30056	Incidental finding report made during Heart MRI scan process	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Categorical	Coding 1		477			0.0			0	
+30057	Incidental finding report made during Brain MRI scan process	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Categorical	Coding 1		937			0.0			0	
+30058	Incidental finding report made during Ultrasound scan process	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Categorical	Coding 1		7			0.0			0	
+30059	Incidental finding report made during DXA scan process	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Categorical		Coding 1		324			0.0			0	
+30060	Mean corpuscular haemoglobin concentration	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Continuous			479,012			0.0			0	
+30061	Mean corpuscular haemoglobin concentration freeze-thaw cycles	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Integer		474,559			0.0			0	
+30062	Mean corpuscular haemoglobin concentration acquisition time	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Time		479,012			0.0			0	
+30063	Mean corpuscular haemoglobin concentration device ID	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Text			479,012			0.0			0	
+30064	Mean corpuscular haemoglobin concentration acquisition route	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Categorical	Coding 2226		479,012			0.0			0	
+30065	Field 30065	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Unknown							0.0	0
+30066	Field 30066	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Unknown							0.0	0
+30067	Field 30067	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Unknown							0.0	0
+30068	Field 30068	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Unknown							0.0	0
+30069	Field 30069	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Unknown							0.0	0
+30070	Red blood cell (erythrocyte) distribution width	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Continuous			Derived measure	479,018			0.0			0	
+30071	Red blood cell (erythrocyte) distribution width freeze-thaw cycles	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Integer				474,564			0.0			0	
+30072	Red blood cell (erythrocyte) distribution width acquisition time	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Time	479,018			0.0			0	
+30073	Red blood cell (erythrocyte) distribution width device ID	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Text		479,018			0.0			0	
+30074	Red blood cell (erythrocyte) distribution width acquisition route	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Categorical		Coding 2226		479,018			0.0			0	
+30075	Field 30075	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Unknown							0.0	0
+30076	Field 30076	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Unknown							0.0	0
+30077	Field 30077	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Unknown							0.0	0
+30078	Field 30078	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Unknown							0.0	0
+30079	Field 30079	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Unknown							0.0	0
+30080	Platelet count	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Continuous			Derived measure	479,015		0.0			0	
+30081	Platelet count freeze-thaw cycles	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Integer				474,563			0.0			0	
+30082	Platelet count acquisition time	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Time				479,015		0.0			0	
+30083	Platelet count device ID	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Text				479,015		0.0			0	
+30084	Platelet count acquisition route	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Categorical		Coding 2226	479,015			0.0			0	
+30085	Field 30085	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Unknown							0.0	0
+30086	Field 30086	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Unknown							0.0	0
+30087	Field 30087	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Unknown							0.0	0
+30088	Field 30088	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Unknown							0.0	0
+30089	Field 30089	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Unknown							0.0	0
+30090	Platelet crit	the platelet packed cell volume.	Clinical_Chemistry	Blood_Biochemistry	Continuous				478,801			0.0		0
+30091	Platelet crit freeze-thaw cycles	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Integer				474,559			0.0			0	
+30092	Platelet crit acquisition time	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Time				478,801		0.0			0	
+30093	Platelet crit device ID	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Text				478,801			0.0			0	
+30094	Platelet crit acquisition route	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Categorical		Coding 2226		478,801			0.0			0	
+30095	Field 30095	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Unknown							0.0	0
+30096	Field 30096	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Unknown							0.0	0
+30097	Field 30097	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Unknown							0.0	0
+30098	Field 30098	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Unknown							0.0	0
+30099	Field 30099	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Unknown							0.0	0
+30100	Mean platelet (thrombocyte) volume	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Continuous			Derived measure	479,010			0.0			0	
+30101	Mean platelet (thrombocyte) volume freeze-thaw cycles	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Integer			474,558			0.0			0	
+30102	Mean platelet (thrombocyte) volume acquisition time	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Time			479,010			0.0			0	
+30103	Mean platelet (thrombocyte) volume device ID	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Text				479,010			0.0			0	
+30104	Mean platelet (thrombocyte) volume acquisition route	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Categorical		Coding 2226		479,010			0.0			0	
+30105	Field 30105	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Unknown							0.0	0
+30106	Field 30106	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Unknown							0.0	0
+30107	Field 30107	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Unknown							0.0	0
+30108	Field 30108	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Unknown							0.0	0
+30109	Field 30109	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Unknown							0.0	0
+30110	Platelet distribution width	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Continuous				478,800			0.0			0	
+30111	Platelet distribution width freeze-thaw cycles	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Integer				474,558			0.0			0	
+30112	Platelet distribution width acquisition time	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Time				478,800			0.0			0	
+30113	Platelet distribution width device ID	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Text				478,800			0.0			0	
+30114	Platelet distribution width acquisition route	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Categorical		Coding 2226		478,800			0.0			0	
+30115	Field 30115	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Unknown							0.0	0
+30116	Field 30116	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Unknown							0.0	0
+30117	Field 30117	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Unknown							0.0	0
+30118	Field 30118	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Unknown							0.0	0
+30119	Field 30119	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Unknown							0.0	0
+30120	Lymphocyte count	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Continuous				478,152		0.0			0	
+30121	Lymphocyte count freeze-thaw cycles	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Integer				473,680			0.0			0	
+30122	Lymphocyte count acquisition time	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Time				478,152			0.0			0	
+30123	Lymphocyte count device ID	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Text				478,152		0.0			0	
+30124	Lymphocyte count acquisition route	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Categorical		Coding 2226	478,152			0.0			0	
+30125	Field 30125	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Unknown							0.0	0
+30126	Field 30126	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Unknown							0.0	0
+30127	Field 30127	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Unknown							0.0	0
+30128	Field 30128	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Unknown							0.0	0
+30129	Field 30129	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Unknown							0.0	0
+30130	Monocyte count	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Continuous				478,152			0.0			0	
+30131	Monocyte count freeze-thaw cycles	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Integer				473,674			0.0			0	
+30132	Monocyte count acquisition time	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Time				478,152		0.0			0	
+30133	Monocyte count device ID	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Text				478,152		0.0			0	
+30134	Monocyte count acquisition route	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Categorical		Coding 2226	478,152			0.0			0	
+30135	Field 30135	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Unknown							0.0	0
+30136	Field 30136	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Unknown							0.0	0
+30137	Field 30137	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Unknown							0.0	0
+30138	Field 30138	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Unknown							0.0	0
+30139	Field 30139	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Unknown							0.0	0
+30140	Neutrophill count	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Continuous				478,152		0.0			0	
+30141	Neutrophill count freeze-thaw cycles	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Integer				473,680			0.0			0	
+30142	Neutrophill count acquisition time	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Time				478,152			0.0			0	
+30143	Neutrophill count device ID	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Text				478,152		0.0			0	
+30144	Neutrophill count acquisition route	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Categorical		Coding 2226	478,152			0.0			0	
+30145	Field 30145	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Unknown							0.0	0
+30146	Field 30146	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Unknown							0.0	0
+30147	Field 30147	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Unknown							0.0	0
+30148	Field 30148	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Unknown							0.0	0
+30149	Field 30149	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Unknown							0.0	0
+30150	Eosinophill count	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Biochemistry	Continuous				478,152		0.0			0	
+30160	Basophill count	Field description available on UK Biobank website	Clinical_Chemistry	Blood_count	Unknown							0.0		0
+30170	Nucleated red blood cell count	Field description available on UK Biobank website	Clinical_Chemistry	Blood_count	Unknown							0.0			0	
+30180	Lymphocyte percentage	Field description available on UK Biobank website	Clinical_Chemistry	Blood_count	Unknown							0.0	0
+30190	Monocyte percentage	Field description available on UK Biobank website	Clinical_Chemistry	Blood_count	Unknown							0.0	0
+30200	Neutrophill percentage	Field description available on UK Biobank website	Clinical_Chemistry	Blood_count	Unknown							0.0	0
+30210	Eosinophill percentage	Field description available on UK Biobank website	Clinical_Chemistry	Blood_count	Unknown							0.0	0
+30220	Basophill percentage	Field description available on UK Biobank website	Clinical_Chemistry	Blood_count	Unknown							0.0	0
+30230	Nucleated red blood cell percentage	Field description available on UK Biobank website	Clinical_Chemistry	Blood_count	Unknown						0.0			0	
+30240	Reticulocyte percentage	Field description available on UK Biobank website	Clinical_Chemistry	Blood_count	Unknown							0.0	0
+30250	Reticulocyte count	Field description available on UK Biobank website	Clinical_Chemistry	Blood_count	Unknown							0.0	0
+30260	Mean reticulocyte volume	Field description available on UK Biobank website	Clinical_Chemistry	Blood_count	Unknown							0.0			0	
+30270	Mean sphered cell volume	Field description available on UK Biobank website	Clinical_Chemistry	Blood_count	Unknown							0.0			0	
+30280	Immature reticulocyte fraction	Field description available on UK Biobank website	Clinical_Chemistry	Blood_count	Unknown							0.0			0	
+30290	High light scatter reticulocyte percentage	Field description available on UK Biobank website	Clinical_Chemistry	Blood_count	Unknown					0.0			0	
+30300	High light scatter reticulocyte count	Field description available on UK Biobank website	Clinical_Chemistry	Blood_count	Unknown						0.0			0	
+30500	Microalbumin in urine	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Continuous	mg/L			156,506			0.0			0	
+30501	Field 30501	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Unknown							0.0		0
+30502	Microalbumin in urine acquisition time	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Date				484,598		0.0			0	
+30503	Microalbumin in urine device ID	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Categorical		Coding 200		484,598			0.0			0	
+30504	Field 30504	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Unknown							0.0		0
+30505	Microalbumin in urine result flag	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Categorical		Coding 198		333,799			0.0			0	
+30506	Field 30506	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Unknown							0.0		0
+30507	Field 30507	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Unknown							0.0		0
+30508	Field 30508	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Unknown							0.0		0
+30509	Field 30509	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Unknown							0.0		0
+30510	Creatinine (enzymatic) in urine	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Continuous				484,618		0.0			0	
+30511	Field 30511	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Unknown							0.0		0
+30512	Creatinine (enzymatic) in urine acquisition time	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Date				484,622			0.0			0	
+30513	Creatinine (enzymatic) in urine device ID	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Categorical		Coding 200	484,622			0.0			0	
+30514	Field 30514	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Unknown							0.0		0
+30515	Creatinine (enzymatic) in urine result flag	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Categorical		Coding 199	40.0			0	
+30516	Field 30516	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Unknown							0.0		0
+30517	Field 30517	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Unknown							0.0		0
+30518	Field 30518	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Unknown							0.0		0
+30519	Field 30519	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Unknown							0.0		0
+30520	Potassium in urine	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Continuous				483,634			0.0			0	
+30521	Field 30521	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Unknown							0.0		0
+30522	Potassium in urine acquisition time	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Date				484,616		0.0			0	
+30523	Potassium in urine device ID	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Categorical		Coding 200		484,616			0.0			0	
+30524	Field 30524	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Unknown							0.0		0
+30525	Potassium in urine result flag	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Categorical		Coding 197		1,0480.0			0	
+30526	Field 30526	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Unknown							0.0		0
+30527	Field 30527	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Unknown							0.0		0
+30528	Field 30528	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Unknown							0.0		0
+30529	Field 30529	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Unknown							0.0		0
+30530	Sodium in urine	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Continuous				483,604			0.0	0
+30531	Field 30531	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Unknown							0.0		0
+30532	Sodium in urine acquisition time	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Date				484,614		0.0			0	
+30533	Sodium in urine device ID	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Categorical		Coding 200		484,614			0.0			0	
+30534	Field 30534	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Unknown							0.0		0
+30535	Sodium in urine result flag	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Categorical		Coding 196		1,0610.0			0	
+30536	Time awake for when wake up during the night in the past month	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Categorical		Coding 2563		180,981			0.0			0	
+30537	Amount of time wake up early by in the past month	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Categorical		Coding 2564		180,981			0.0			0	
+30538	Number of nights a week of problematic sleep in the past month	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Categorical		Coding 2565		180,981			0.0			0	
+30539	Sleep quality in the past month	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Categorical		Coding 2566	Quality controlled	180,981			0.0			0	
+30540	The extent that poor sleep has affected mood or energy in the past month	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Categorical		Coding 2567		180,981			0.0			0	
+30541	The extent that poor sleep has affected concentration or productivity in the past month	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Categorical		Coding 2567		180,981			0.0			0	
+30542	The extent that poor sleep has troubled the respondent in the past month	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Categorical		Coding 2567		180,981			0.0			0	
+30543	Length of time had a problem with sleep	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Categorical		Coding 2568		180,981			0.0			0	
+30544	Tendency to sleep well just at the wrong times	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Categorical		Coding 100352180,201			0.0			0	
+30545	Tendency to sleep well but only if stay up late	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Categorical		Coding 10035221,363			0.0			0	
+30546	Tendency to be asleep soundly at normal waking time	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Categorical		Coding 100352		21,363			0.0			0	
+30547	Tendency to sleep well but only if go to bed early	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Categorical		Coding 100352		21,363			0.0			0	
+30548	Tendency to wake early, bright and alert	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Categorical		Coding 10035221,363			0.0			0	
+30549	Experiences of buckling of the knees in various situations	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Categorical Multiple	Coding 2569		180,201			0.0			0	
+30550	Experiences of sagging of the jaw in various situations	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Categorical Multiple		Coding 2569		180,201			0.0			0	
+30551	Experiences of abrupt dropping of head and/or shoulders in various situations	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Categorical Multiple		Coding 2569		180,201			0.0			0	
+30552	Experiences of weakness in your arms in various situations	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Categorical Multiple	Coding 2569		180,201			0.0			0	
+30553	Experiences of slurring of speech in various situations	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Categorical Multiple		Coding 2569		180,201			0.0			0	
+30554	Experiences of falling to the ground, unable to move in various situations	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Categorical Multiple		Coding 2569		180,201			0.0			0	
+30555	Frequency of sleep walking	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Categorical		Coding 2570		180,201			0.0			0	
+30556	Frequency of grinding teeth	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Categorical		Coding 2570		180,201			0.0			0	
+30557	Frequency of &apos;acting out dreams&apos;	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Categorical		Coding 100617180,201			0.0			0	
+30558	Frequency of violent behaviour during sleep	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Categorical		Coding 2570	180,201			0.0			0	
+30559	Frequency of nightmares	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Categorical		Coding 2570		180,201		0.0			0	
+30560	Frequency of remembering dreams	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Categorical	year	Coding 2570		119,184			0.0			0	
+30561	Seizures, convulsions or fits during sleep	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Categorical		Coding 100349180,201			0.0			0	
+30562	Occurrence of snoring	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Categorical		Coding 100349		180,201		0.0			0	
+30563	Volume of snoring	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Categorical		Coding 2571		94,199		0.0			0	
+30564	Frequency of snoring	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Categorical		Coding 2572		94,199		0.0			0	
+30565	Does snoring affect other people	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Categorical		Coding 100617		94,199			0.0			0	
+30566	Frequency of stopping breathing during sleep	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Categorical		Coding 2555	180,201			0.0			0	
+30567	Feelings of tiredness after sleep	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Categorical		Coding 2520		180,201			0.0			0	
+30568	Feelings of tiredness during waking time	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Categorical		Coding 2520	180,201			0.0			0	
+30569	Falling asleep when driving	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Categorical		Coding 2573		180,201			0.0			0	
+30570	Frequency of falling asleep when driving	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Categorical		Coding 2520	14,281			0.0			0	
+30571	Frequency of motor accidents or near misses due to sleepiness in the last year	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Categorical	year	Coding 2574		180,201			0.0			0	
+30572	Fatigue a problem over the last two weeks	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Categorical		Coding 2575	179,687			0.0			0	
+30573	Fatigue causing problems with everyday functioning over the last two weeks	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Categorical		Coding 2575		179,687			0.0			0	
+30574	Fatigue causing distress over the last two weeks	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Categorical		Coding 2575		179,687			0.0			0	
+30575	Frequency of fatigue over the last two weeks	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Categorical		Coding 2576	179,687			0.0			0	
+30576	Time of day fatigue was suffered over the last two weeks	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Categorical Multiple	Coding 2577		106,265			0.0			0	
+30577	Severity of fatigue over the last two weeks	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Categorical		Coding 2575	106,265			0.0			0	
+30578	Fatigue caused by poor sleep over the last two weeks	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Categorical		Coding 2575		106,265			0.0			0	
+30579	Recurrent uncomfortable feelings in legs while sitting or lying down	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Categorical	Coding 100349		179,536			0.0			0	
+30580	Recurrent need to move legs while sitting or lying down	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Categorical		Coding 100349		179,536			0.0			0	
+30581	Feelings in legs when resting or moving	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Categorical		Coding 2521		63,446			0.0			0	
+30582	Improvement of feeling in legs with movement	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Categorical		Coding 10034963,446			0.0			0	
+30583	Times of day that feelings in legs occur	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Categorical Multiple		Coding 2522		63,446			0.0			0	
+30584	Does changing leg position help	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Categorical		Coding 2578		63,4460.0			0	
+30585	Are feelings in legs due to muscle cramps	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Categorical		Coding 10034963,446			0.0			0	
+30586	Beta-globin Ct value in TaqMan assay (interim dataset)	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Continuous			416,518			0.0			0	
+30587	U7 gene Ct value in TaqMan assay (interim dataset)	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Continuous			416,518			0.0			0	
+30588	DR1 gene Ct value in TaqMan assay (interim dataset)	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Continuous			416,518			0.0			0	
+30589	TaqMan assay screen result (interim dataset)	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Categorical		Coding 2528	Derived measure	416,518			0.0			0	
+30590	Field 30590	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Unknown							0.0		0
+30591	Field 30591	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Unknown							0.0		0
+30592	Field 30592	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Unknown							0.0		0
+30593	Field 30593	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Unknown							0.0		0
+30594	Field 30594	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Unknown							0.0		0
+30595	Field 30595	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Unknown							0.0		0
+30596	Field 30596	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Unknown							0.0		0
+30597	Field 30597	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Unknown							0.0		0
+30598	Field 30598	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Unknown							0.0		0
+30599	Field 30599	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Unknown							0.0		0
+30600	Albumin	Field description available on UK Biobank website	Clinical_Chemistry	Blood_Count	Continuous	g/L		Quality controlled	432,037			0.0			0	
+30610	Alkaline phosphatase	Field description available on UK Biobank website	Clinical_Chemistry	Blood_biochemistry	Unknown							0.0			0	
+30620	Alanine aminotransferase	Field description available on UK Biobank website	Clinical_Chemistry	Blood_biochemistry	Unknown						0.0			0	
+30630	Apolipoprotein A	Field description available on UK Biobank website	Clinical_Chemistry	Blood_biochemistry	Unknown							0.0			0	
+30640	Apolipoprotein B	Field description available on UK Biobank website	Clinical_Chemistry	Blood_biochemistry	Unknown							0.0			0	
+30650	Aspartate aminotransferase	Field description available on UK Biobank website	Clinical_Chemistry	Blood_biochemistry	Unknown						0.0			0	
+30660	Direct bilirubin	Field description available on UK Biobank website	Clinical_Chemistry	Blood_biochemistry	Unknown							0.0			0	
+30670	Urea	Field description available on UK Biobank website	Clinical_Chemistry	Blood_biochemistry	Unknown							0.0		0
+30680	Calcium	Field description available on UK Biobank website	Clinical_Chemistry	Blood_biochemistry	Unknown							0.0		0
+30690	Cholesterol	Field description available on UK Biobank website	Clinical_Chemistry	Blood_biochemistry	Unknown							0.0	0
+30700	Creatinine	Field description available on UK Biobank website	Clinical_Chemistry	Urine_Assays	Continuous			Quality controlled	470,294		0.0			0	
+30701	Creatinine assay date	Field description available on UK Biobank website	Clinical_Chemistry	Urine_Assays	Date				474,239			0.0	0
+30702	Creatinine aliquot	Field description available on UK Biobank website	Clinical_Chemistry	Urine_Assays	Categorical		Coding 1529		474,030		0.0			0	
+30703	Creatinine correction level	Field description available on UK Biobank website	Clinical_Chemistry	Urine_Assays	Categorical		Coding 165		470,294			0.0			0	
+30704	Creatinine correction reason	Field description available on UK Biobank website	Clinical_Chemistry	Urine_Assays	Categorical		Coding 305		470,294			0.0			0	
+30705	Creatinine missing reason	Field description available on UK Biobank website	Clinical_Chemistry	Urine_Assays	Categorical		Coding 782		24,1310.0			0	
+30706	Creatinine reportability	Field description available on UK Biobank website	Clinical_Chemistry	Urine_Assays	Categorical		Coding 4917		470,294			0.0			0	
+30707	Field 30707	Field description available on UK Biobank website	Clinical_Chemistry	Urine_Assays	Unknown							0.0		0
+30708	Field 30708	Field description available on UK Biobank website	Clinical_Chemistry	Urine_Assays	Unknown							0.0		0
+30709	Field 30709	Field description available on UK Biobank website	Clinical_Chemistry	Urine_Assays	Unknown							0.0		0
+30710	C-reactive protein	Field description available on UK Biobank website	Clinical_Chemistry	Urine_Assays	Continuous	mg/L		Quality controlled	469,528			0.0			0	
+30711	C-reactive protein assay date	Field description available on UK Biobank website	Clinical_Chemistry	Urine_Assays	Date				474,091			0.0			0	
+30712	C-reactive protein aliquot	Field description available on UK Biobank website	Clinical_Chemistry	Urine_Assays	Categorical		Coding 1529		473,882			0.0			0	
+30713	C-reactive protein correction level	Field description available on UK Biobank website	Clinical_Chemistry	Urine_Assays	Categorical		Coding 165		469,528			0.0			0	
+30714	C-reactive protein correction reason	Field description available on UK Biobank website	Clinical_Chemistry	Urine_Assays	Categorical		Coding 305		469,528			0.0			0	
+30715	C-reactive protein missing reason	Field description available on UK Biobank website	Clinical_Chemistry	Urine_Assays	Categorical		Coding 782		24,923			0.0			0	
+30716	C-reactive protein reportability	Field description available on UK Biobank website	Clinical_Chemistry	Urine_Assays	Categorical		Coding 4917		469,934			0.0			0	
+30717	Field 30717	Field description available on UK Biobank website	Clinical_Chemistry	Urine_Assays	Unknown							0.0		0
+30718	Field 30718	Field description available on UK Biobank website	Clinical_Chemistry	Urine_Assays	Unknown							0.0		0
+30719	Field 30719	Field description available on UK Biobank website	Clinical_Chemistry	Urine_Assays	Unknown							0.0		0
+30720	Cystatin C	Field description available on UK Biobank website	Clinical_Chemistry	Urine_Assays	Continuous	mg/L		Quality controlled	470,488		0.0			0	
+30721	Cystatin C assay date	Field description available on UK Biobank website	Clinical_Chemistry	Urine_Assays	Date				474,400			0.0	0
+30722	Cystatin C aliquot	Field description available on UK Biobank website	Clinical_Chemistry	Urine_Assays	Categorical		Coding 1529		474,190		0.0			0	
+30723	Cystatin C correction level	Field description available on UK Biobank website	Clinical_Chemistry	Urine_Assays	Categorical		Coding 165		470,488			0.0			0	
+30724	Cystatin C correction reason	Field description available on UK Biobank website	Clinical_Chemistry	Urine_Assays	Categorical		Coding 305		470,488			0.0			0	
+30725	Cystatin C missing reason	Field description available on UK Biobank website	Clinical_Chemistry	Urine_Assays	Categorical		Coding 782		23,9090.0			0	
+30726	Cystatin C reportability	Field description available on UK Biobank website	Clinical_Chemistry	Urine_Assays	Categorical		Coding 4917		470,503			0.0			0	
+30727	Field 30727	Field description available on UK Biobank website	Clinical_Chemistry	Urine_Assays	Unknown							0.0		0
+30728	Field 30728	Field description available on UK Biobank website	Clinical_Chemistry	Urine_Assays	Unknown							0.0		0
+30729	Field 30729	Field description available on UK Biobank website	Clinical_Chemistry	Urine_Assays	Unknown							0.0		0
+30730	Gamma glutamyltransferase	Field description available on UK Biobank website	Clinical_Chemistry	Urine_Assays	Continuous			Quality controlled	470,275			0.0			0	
+30731	Gamma glutamyltransferase assay date	Field description available on UK Biobank website	Clinical_Chemistry	Urine_Assays	Date				474,381		0.0			0	
+30732	Gamma glutamyltransferase aliquot	Field description available on UK Biobank website	Clinical_Chemistry	Urine_Assays	Categorical		Coding 1529		474,172			0.0			0	
+30733	Gamma glutamyltransferase correction level	Field description available on UK Biobank website	Clinical_Chemistry	Urine_Assays	Categorical		Coding 165	470,275			0.0			0	
+30734	Gamma glutamyltransferase correction reason	Field description available on UK Biobank website	Clinical_Chemistry	Urine_Assays	Categorical		Coding 305	470,275			0.0			0	
+30735	Gamma glutamyltransferase missing reason	Field description available on UK Biobank website	Clinical_Chemistry	Urine_Assays	Categorical		Coding 782	24,127			0.0			0	
+30736	Gamma glutamyltransferase reportability	Field description available on UK Biobank website	Clinical_Chemistry	Urine_Assays	Categorical		Coding 4917		470,369			0.0			0	
+30737	Field 30737	Field description available on UK Biobank website	Clinical_Chemistry	Urine_Assays	Unknown							0.0		0
+30738	Field 30738	Field description available on UK Biobank website	Clinical_Chemistry	Urine_Assays	Unknown							0.0		0
+30739	Field 30739	Field description available on UK Biobank website	Clinical_Chemistry	Urine_Assays	Unknown							0.0		0
+30740	Glucose	Field description available on UK Biobank website	Clinical_Chemistry	Urine_Assays	Continuous	mmol/L		Quality controlled	431,542			0.0			0	
+30741	Glucose assay date	Field description available on UK Biobank website	Clinical_Chemistry	Urine_Assays	Date				473,812			0.0	0
+30742	Glucose aliquot	Field description available on UK Biobank website	Clinical_Chemistry	Urine_Assays	Categorical		Coding 1529		473,603			0.0			0	
+30743	Glucose correction level	Field description available on UK Biobank website	Clinical_Chemistry	Urine_Assays	Categorical		Coding 165		431,542			0.0			0	
+30744	Glucose correction reason	Field description available on UK Biobank website	Clinical_Chemistry	Urine_Assays	Categorical		Coding 305		431,542			0.0			0	
+30745	Glucose missing reason	Field description available on UK Biobank website	Clinical_Chemistry	Urine_Assays	Categorical		Coding 782		65,660		0.0			0	
+30746	Glucose reportability	Field description available on UK Biobank website	Clinical_Chemistry	Urine_Assays	Categorical		Coding 4917		431,550		0.0			0	
+30747	Field 30747	Field description available on UK Biobank website	Clinical_Chemistry	Urine_Assays	Unknown							0.0		0
+30748	Field 30748	Field description available on UK Biobank website	Clinical_Chemistry	Urine_Assays	Unknown							0.0		0
+30749	Field 30749	Field description available on UK Biobank website	Clinical_Chemistry	Urine_Assays	Unknown							0.0		0
+30750	Glycated haemoglobin (HbA1c)	Field description available on UK Biobank website	Clinical_Chemistry	Urine_Assays	Continuous			Quality controlled	467,587			0.0			0	
+30760	HDL cholesterol	Field description available on UK Biobank website	Clinical_Chemistry	Blood_biochemistry	Unknown							0.0	0
+30770	IGF-1	Field description available on UK Biobank website	Clinical_Chemistry	Blood_biochemistry	Unknown							0.0		0
+30780	LDL direct	Field description available on UK Biobank website	Clinical_Chemistry	Blood_biochemistry	Unknown							0.0	0
+30790	Lipoprotein A	Field description available on UK Biobank website	Clinical_Chemistry	Blood_biochemistry	Unknown							0.0	0
+30800	Oestradiol	Field description available on UK Biobank website	Clinical_Chemistry	Blood_biochemistry	Unknown							0.0	0
+30810	Phosphate	Field description available on UK Biobank website	Clinical_Chemistry	Blood_biochemistry	Unknown							0.0	0
+30820	Rheumatoid factor	Field description available on UK Biobank website	Clinical_Chemistry	Blood_biochemistry	Unknown							0.0			0	
+30830	SHBG	Field description available on UK Biobank website	Clinical_Chemistry	Blood_biochemistry	Unknown							0.0		0
+30840	Total bilirubin	Field description available on UK Biobank website	Clinical_Chemistry	Blood_biochemistry	Unknown							0.0	0
+30850	Testosterone	Field description available on UK Biobank website	Clinical_Chemistry	Blood_biochemistry	Unknown							0.0	0
+30860	Total protein	Field description available on UK Biobank website	Clinical_Chemistry	Blood_biochemistry	Unknown							0.0	0
+30870	Triglycerides	Field description available on UK Biobank website	Clinical_Chemistry	Blood_biochemistry	Unknown							0.0	0
+30880	Urate	Field description available on UK Biobank website	Clinical_Chemistry	Blood_biochemistry	Unknown							0.0		0
+30890	Vitamin D	Field description available on UK Biobank website	Clinical_Chemistry	Blood_biochemistry	Unknown							0.0	0

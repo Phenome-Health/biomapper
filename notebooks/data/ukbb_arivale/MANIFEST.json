@@ -1,0 +1,36 @@
+{
+ "description": "UK Biobank x Arivale harmonization SOP notebook data: panel metadata only (measurement names and published identifiers), no participant data.",
+ "panels": "the six input panels exactly as used by the Activity 2 milestone runs (SHA-256 equal to those runs' manifests)",
+ "replay": "each panel's saved BioMapper mapping results from the milestone runs (raw API responses removed), keyed by sha256 of {entity type, name, submitted identifiers}; gzip",
+ "milestone_links": "the matched pairs each milestone run saved, used by the notebook's reproduction check",
+ "milestone_runs": {
+  "metabolites": "ukbb_arivale_metabolites_20260927T021902Z",
+  "proteins": "ukbb_arivale_proteins_20260927T044016Z",
+  "labs": "ukbb_arivale_labs_20260928T221354Z"
+ },
+ "pin": {
+  "biomapper_resolution": "1.5.3",
+  "biomapper_harmonize": "1.5.5",
+  "kg_version": "2.3.0",
+  "kraken_package_version": "2.2.0",
+  "kraken_git_commit": "3dd08a5b"
+ },
+ "sha256": {
+  "milestone_links/labs_name_only_links.csv": "63d9a0ee49fa8651aef6ca194bd68af214f4f2dd6317985b34ce13105d0e3a1f",
+  "milestone_links/labs_provided_id_links.csv": "d6a5f9c2808087157808794c2e80b7e15751966b7f70edcf64aa2d1590c5bcb5",
+  "milestone_links/metabolites_name_only_links.csv": "310f6317fadcb61f11edf500247434fbf625cdabaef320fcc969160328a49441",
+  "milestone_links/metabolites_provided_id_links.csv": "3d48a4b099422fd786f2bd1c897ecc49a4ed69eb980d426a74b89a945907042f",
+  "milestone_links/proteins_name_only_links.csv": "64b6fd9cb899451d347db2c4f6e22f1c13c0b081e8bda3c8c0712adcef392043",
+  "milestone_links/proteins_provided_id_links.csv": "d35e5f82dcd3f48ff2e2c7096deda1474738240e543da5e1f186f794682d7b50",
+  "panels/labs_arivale_chemistries_metadata.tsv": "e04c2d50cad9623cd2747a61cafc707ff5c64314a448f6438e0ca6f9260e78bf",
+  "panels/labs_ukbb_ukbb_chemistry_full_20250924.tsv": "1451b3f20bfbd06c59497089351e8ab4894efab1c014131342164bf8ffea5953",
+  "panels/metabolites_arivale_metabolomics_metadata.tsv": "a086b6fdf5957dce0a5331a6e245cd7fe645f048febb8d565268497b464fa264",
+  "panels/metabolites_ukbb_ukbb_nmr_meta.tsv": "931612656f6d1c83f50478495fdbcdc9f2f5694ddc661a074022c6ac5e406bf4",
+  "panels/proteins_arivale_proteomics_metadata.tsv": "92dae79d144ab042d44f5f388132d00ea77e454494198aed79c3987a60bd4413",
+  "panels/proteins_ukbb_ukbb_protein_meta.tsv": "3a19ddcbb4e77321235a34201ace039669d619cc40368cac4df2652319f7f416",
+  "replay/labs_replay.json.gz": "b8ac9b4349ca556893f1af04849ae043925e660de3f0ae9e830195c03b602588",
+  "replay/metabolites_replay.json.gz": "4978e63fdc2c899311a91b84dbc8d48465d549c32076eff677e893b5b51c12d3",
+  "replay/proteins_replay.json.gz": "2a2b4f81f5205c542e2c1b918ed5a964f36c26a9f5b65c328a836716973c3697",
+  "replay/replay_manifest.json": "c4bf96f58965696f71472a9a7c073ca6c1433366b08a5d0b634d3329cb207608"
+ }
+}
