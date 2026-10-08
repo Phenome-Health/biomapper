@@ -865,15 +865,20 @@ def harmonize_cohorts(
                 [(r, {}, res) for r, res in zip(cohort.records, results, strict=True)])
 
     def link(results_by_label: dict[str, list[MappingResult]]) -> HarmonizationResult:
-        keys = {c.label: [r.key for r in c.records] for c in cohorts}
+        # harmonize()'s key callable sees only (result, index-within-side), so rows are keyed by
+        # object identity. Copy every result first: a caching mapper may return ONE object for
+        # several rows (or for both cohorts), and identity would then collapse their keys.
+        copies = {
+            c.label: [res.model_copy() for res in results_by_label[c.label]] for c in cohorts
+        }
         keymap = {
-            id(res): key
+            id(res): rec.key
             for c in cohorts
-            for res, key in zip(results_by_label[c.label], keys[c.label], strict=True)
+            for res, rec in zip(copies[c.label], c.records, strict=True)
         }
         return harmonize(
-            results_by_label[a_label],
-            results_by_label[b_label],
+            copies[a_label],
+            copies[b_label],
             a_label=a_label,
             b_label=b_label,
             key=lambda res, _i: keymap[id(res)],

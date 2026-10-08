@@ -220,3 +220,22 @@ def test_default_mapper_uses_the_batching_and_timeout_settings(tmp_path, monkeyp
     assert report.settings["batch_size"] == 2
     assert report.settings["timeout_s"] == 99.0
     assert report.settings["mapper"] == "BatchedApiMapper"
+
+
+def test_a_mapper_that_reuses_one_result_object_still_keys_each_row(tmp_path) -> None:
+    """A caching mapper may hand back the same object for equal requests on both sides."""
+    shared = mr("Glucose", "CHEBI:17234")
+
+    def cached(records, *, entity_type, annotation_mode):
+        return [shared for _ in records]
+
+    report = harmonize_cohorts(
+        [{"name": "Glucose"}, {"name": "Glucose"}],
+        [{"name": "Glucose"}],
+        entity="metabolites",
+        mapper=cached,
+        probe_pins=False,
+        save=False,
+    )
+    pairs = sorted((lk.a_key, lk.b_key) for lk in report.names_only.links)
+    assert pairs == [("0|Glucose", "0|Glucose"), ("1|Glucose", "0|Glucose")]
