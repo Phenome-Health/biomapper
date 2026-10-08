@@ -533,13 +533,45 @@ def _write_mapping(
 
 
 def _new_run_dir(base: Path) -> Path:
+    """Create and return a fresh, timestamped run directory under ``base``.
+
+    The directory is created exclusively (``exist_ok=False``) so two runs starting in the same
+    second can never both claim it: the loser of the race gets ``FileExistsError`` and moves on
+    to the next suffix.
+    """
+    base.mkdir(parents=True, exist_ok=True)
     stamp = dt.datetime.now(dt.UTC).strftime("%Y%m%dT%H%M%SZ")
     candidate = base / f"harmonize_cohorts_{stamp}"
     n = 2
-    while candidate.exists():
-        candidate = base / f"harmonize_cohorts_{stamp}_{n}"
-        n += 1
-    return candidate
+    while True:
+        try:
+            candidate.mkdir()
+            return candidate
+        except FileExistsError:
+            candidate = base / f"harmonize_cohorts_{stamp}_{n}"
+            n += 1
+
+
+# Fields CohortHarmonizationReport adds to each arm's per-cohort summary; a cohort label equal to
+# one of these would have its counts overwritten.
+_RESERVED_COHORT_LABELS = frozenset({"n_one_to_one"})
+
+
+def _require_cohort_labels(a_label: str, b_label: str) -> None:
+    """Reject labels that collide in the report's summary or in its saved filenames."""
+    _require_distinct_labels(a_label, b_label)
+    for side, label in (("a_label", a_label), ("b_label", b_label)):
+        if label in _RESERVED_COHORT_LABELS:
+            raise ValueError(
+                f"{side}={label!r} is reserved: the report summary emits it as a scalar field, "
+                "so a cohort under that label would lose its counts."
+            )
+    if _safe(a_label) == _safe(b_label):
+        raise ValueError(
+            f"a_label={a_label!r} and b_label={b_label!r} both save as {_safe(a_label)!r}, so "
+            "one cohort's mapping files would overwrite the other's; choose labels that differ "
+            "in letters, digits, '.', '-' or '_'."
+        )
 
 
 @dataclass
@@ -796,7 +828,7 @@ def harmonize_cohorts(
     Raises:
         ValueError: Invalid labels, entity, columns or keys. Raised before any request is sent.
     """
-    _require_distinct_labels(a_label, b_label)
+    _require_cohort_labels(a_label, b_label)
     resolved_category = resolve_category(entity, category)
     link_by_name = resolved_category in NAME_LINKING_CATEGORIES
     cohort_a = read_cohort(

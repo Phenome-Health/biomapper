@@ -40,7 +40,7 @@ def test_diff_by_key_pair() -> None:
     assert diff.both == (("a2", "b2"),)
 
 
-@pytest.mark.parametrize("label", ["n_links", "links_by_basis"])
+@pytest.mark.parametrize("label", ["n_links", "links_by_basis", "n_one_to_one"])
 def test_reserved_labels_raise_before_any_mapping(label: str) -> None:
     mapper = FakeMapper(lambda n, i, m, t: mr(n))
     with pytest.raises(ValueError, match="reserved"):
@@ -49,6 +49,25 @@ def test_reserved_labels_raise_before_any_mapping(label: str) -> None:
             mapper=mapper, probe_pins=False, save=False,
         )
     assert mapper.calls == []
+
+
+def test_labels_with_colliding_filenames_raise_before_any_mapping() -> None:
+    mapper = FakeMapper(lambda n, i, m, t: mr(n))
+    with pytest.raises(ValueError, match="overwrite"):
+        harmonize_cohorts(
+            [{"name": "x"}], [{"name": "x"}], entity="labs", a_label="UK/B", b_label="UK B",
+            mapper=mapper, probe_pins=False, save=False,
+        )
+    assert mapper.calls == []
+
+
+def test_new_run_dir_claims_a_fresh_directory_each_call(tmp_path) -> None:
+    from biomapper.cohorts import _new_run_dir
+
+    first = _new_run_dir(tmp_path)
+    second = _new_run_dir(tmp_path)
+    assert first.is_dir() and second.is_dir()
+    assert first != second
 
 
 def test_equal_labels_raise_before_any_mapping() -> None:
