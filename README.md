@@ -376,6 +376,73 @@ errored is tracked separately again in `a_errors` / `b_errors`.
 Import it as `from biomapper.harmonize import harmonize`. The name is deliberately not bound on
 the package root, where it would shadow the submodule.
 
+### Harmonizing two cohorts in one call: `harmonize_cohorts()`
+
+`harmonize_cohorts()` runs the whole protocol: it reads both cohort tables, maps them, links them
+with `harmonize()`, and writes a pinned report. It exists because the obvious manual path can
+quietly make results worse. When only one cohort publishes an identifier type, supplying it moves
+that cohort onto code-specific entries the other cohort never reaches by name: on the UK Biobank x
+Arivale clinical labs, supplying Arivale's LOINC codes cut matched pairs from 31 to 2.
+
+```python
+from biomapper import harmonize_cohorts
+
+report = harmonize_cohorts(
+    "ukbb_labs.tsv",                  # a DataFrame, a list of dicts, or a TSV/CSV path
+    "arivale_labs.tsv",               # ('#' comment lines are skipped)
+    entity="labs",                    # -> biolink:ClinicalMeasurement
+    a_name_column="field_name",
+    b_name_column="Display Name",
+    b_vocabularies={"LOINC": ["Labcorp LOINC ID", "Quest LOINC ID"]},
+    a_label="ukbb",
+    b_label="arivale",
+)
+# UserWarning: LOINC is declared only for 'arivale' ... not supplied as mapping input
+report.summary()["arms"]["names_only"]   # pairs, one-to-one, link bases, unresolved, errors
+report.review_queue                      # codes whose entry disagrees with the name's entry
+# harmonize_cohorts: wrote results to .../biomapper_runs/harmonize_cohorts_20261008T190000Z
+```
+
+What it does:
+
+1. **Names-only arm.** Both cohorts are mapped by name with the resolved category and no
+   identifiers. `entity` takes `metabolites` (SmallMolecule), `proteins` (Protein), `genes` (Gene),
+   `labs` (ClinicalMeasurement, where lab tests live in Biolink) or any raw `biolink:` category;
+   `category=` overrides an alias. Name linking is on for SmallMolecule only, as in `harmonize()`.
+2. **Identifier arm, shared vocabularies only.** You declare identifier columns per vocabulary
+   and cohort (`{"LOINC": [...]}`); names are normalized, so `KEGG.COMPOUND` equals `KEGG`. Only
+   vocabularies **both** cohorts declare are supplied as mapping input, and only rows carrying
+   one are re-mapped; the rest reuse their names-only result. With nothing shared the arm is
+   skipped and the report says why; with no identifier columns only the names-only arm runs.
+3. **Review queue for one-sided codes.** Each code of a vocabulary only one cohort declares is
+   resolved on its own (`annotation_mode="none"`, one request per row and code) and compared with
+   the row's names-only entry by identifier-set intersection. Every code gets a status (`agree`,
+   `disagree`, `code_unresolved`, `name_unresolved_code_resolved`, `errored`);
+   `report.review_queue` lists everything but `agree`, with both entries. On the labs this lists
+   Arivale "Glucose", whose name lands on one entry while its LOINC code 2345-7 says another.
+4. **Report.** Both `HarmonizationResult`s (`report.names_only`, `report.identifier`), their
+   `diff` (pairs found only by names, only with identifiers, by both), one-to-one counts, link
+   bases, warnings, excluded rows (blank names), and pins.
+
+**Output by default.** Results are written to `biomapper_runs/harmonize_cohorts_<UTC stamp>/`
+under the current directory (override with `output_dir=`; `save=False` to skip;
+`report.write(path)` any time): mapping results per arm and cohort, written as each arm finishes
+so a failure keeps finished work, link tables per arm, `diff.tsv`, `review_queue.tsv`,
+`settings.json` and `summary.json`. Nothing beyond what you passed in is written, and input files
+are recorded by name and SHA-256, never by absolute path.
+
+**Pins.** The package version; the API's `/health` status and self-reported version (labelled
+"self-reported, known stale": the API does not expose its engine release, which is recorded as
+`unavailable`); Kestrel's `/health` `kestrel_version` and `kg_build` together with the Kestrel URL
+used (`kestrel_url=`); and a UTC timestamp. `probe_pins=False` skips the two reads.
+
+**Requests.** The default mapper sends batches of 10 with a 300 s timeout (`batch_size=`,
+`timeout=`, `progress=True` to see them); a failed batch becomes errored rows that are counted,
+not an exception. Pass `mapper=` (any `(records, *, entity_type, annotation_mode) ->
+list[MappingResult]` callable) to replay recorded results offline; the tests replay the UK Biobank
+x Arivale labs this way (`tests/fixtures/cohorts_labs_cm/`, KRAKEN kg 2.3.0 / 3dd08a5b: 37 pairs,
+21 one-to-one by name).
+
 ---
 
 ## API reference

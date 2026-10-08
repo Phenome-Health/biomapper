@@ -15,6 +15,19 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   All links are still returned; nothing is dropped. On NECS x Xu et al. 2022 scored against
   Metabolon compound IDs, one-to-one links were 397 of 398 correct (99.7%) versus 439 of 575
   (76.3%) for all links; the 177 ambiguous links held 42 true matches.
+- **`harmonize_cohorts()`** (new module `biomapper.cohorts`, exported at the package root with
+  `CohortHarmonizationReport`): the cohort harmonization protocol as one call. Reads two cohort
+  tables client-side (DataFrame, list of dicts, or TSV/CSV path), maps both by name with the
+  resolved category (`labs` resolves to `biolink:ClinicalMeasurement`), supplies identifiers only
+  for vocabularies both cohorts declare, warns about and never supplies one-sided vocabularies,
+  turns one-sided codes into a review queue (code-only resolution compared with the names-only
+  entry), links each arm with the unchanged `harmonize()`, and returns one report with both arms,
+  their diff, one-to-one counts, link bases, warnings and pins. Results are written to a
+  timestamped `biomapper_runs/` directory by default, each arm as it completes. On the UK Biobank x
+  Arivale labs replay it reproduces the names-only ClinicalMeasurement result (37 pairs, 21
+  one-to-one) and flags LOINC as one-sided.
+- `fetch_kg_build_info` and `KgBuildInfo` moved to the pandas-free `biomapper._provenance` so a
+  core install can pin a run; `biomapper.benchmarks.provenance` re-exports both unchanged.
 
 ### Changed
 

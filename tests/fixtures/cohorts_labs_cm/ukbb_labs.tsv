@@ -1,0 +1,66 @@
+key	name
+30000|White blood cell (leukocyte) count	White blood cell (leukocyte) count
+30010|Red blood cell (erythrocyte) count	Red blood cell (erythrocyte) count
+30020|Haemoglobin concentration	Haemoglobin concentration
+30030|Haematocrit percentage	Haematocrit percentage
+30040|Mean corpuscular volume	Mean corpuscular volume
+30050|Mean corpuscular haemoglobin	Mean corpuscular haemoglobin
+30060|Mean corpuscular haemoglobin concentration	Mean corpuscular haemoglobin concentration
+30070|Red blood cell (erythrocyte) distribution width	Red blood cell (erythrocyte) distribution width
+30080|Platelet count	Platelet count
+30090|Platelet crit	Platelet crit
+30100|Mean platelet (thrombocyte) volume	Mean platelet (thrombocyte) volume
+30110|Platelet distribution width	Platelet distribution width
+30120|Lymphocyte count	Lymphocyte count
+30130|Monocyte count	Monocyte count
+30140|Neutrophill count	Neutrophill count
+30150|Eosinophill count	Eosinophill count
+30160|Basophill count	Basophill count
+30170|Nucleated red blood cell count	Nucleated red blood cell count
+30180|Lymphocyte percentage	Lymphocyte percentage
+30190|Monocyte percentage	Monocyte percentage
+30200|Neutrophill percentage	Neutrophill percentage
+30210|Eosinophill percentage	Eosinophill percentage
+30220|Basophill percentage	Basophill percentage
+30230|Nucleated red blood cell percentage	Nucleated red blood cell percentage
+30240|Reticulocyte percentage	Reticulocyte percentage
+30250|Reticulocyte count	Reticulocyte count
+30260|Mean reticulocyte volume	Mean reticulocyte volume
+30270|Mean sphered cell volume	Mean sphered cell volume
+30280|Immature reticulocyte fraction	Immature reticulocyte fraction
+30290|High light scatter reticulocyte percentage	High light scatter reticulocyte percentage
+30300|High light scatter reticulocyte count	High light scatter reticulocyte count
+30500|Microalbumin in urine	Microalbumin in urine
+30510|Creatinine (enzymatic) in urine	Creatinine (enzymatic) in urine
+30520|Potassium in urine	Potassium in urine
+30530|Sodium in urine	Sodium in urine
+30600|Albumin	Albumin
+30610|Alkaline phosphatase	Alkaline phosphatase
+30620|Alanine aminotransferase	Alanine aminotransferase
+30630|Apolipoprotein A	Apolipoprotein A
+30640|Apolipoprotein B	Apolipoprotein B
+30650|Aspartate aminotransferase	Aspartate aminotransferase
+30660|Direct bilirubin	Direct bilirubin
+30670|Urea	Urea
+30680|Calcium	Calcium
+30690|Cholesterol	Cholesterol
+30700|Creatinine	Creatinine
+30710|C-reactive protein	C-reactive protein
+30720|Cystatin C	Cystatin C
+30730|Gamma glutamyltransferase	Gamma glutamyltransferase
+30740|Glucose	Glucose
+30750|Glycated haemoglobin (HbA1c)	Glycated haemoglobin (HbA1c)
+30760|HDL cholesterol	HDL cholesterol
+30770|IGF-1	IGF-1
+30780|LDL direct	LDL direct
+30790|Lipoprotein A	Lipoprotein A
+30800|Oestradiol	Oestradiol
+30810|Phosphate	Phosphate
+30820|Rheumatoid factor	Rheumatoid factor
+30830|SHBG	SHBG
+30840|Total bilirubin	Total bilirubin
+30850|Testosterone	Testosterone
+30860|Total protein	Total protein
+30870|Triglycerides	Triglycerides
+30880|Urate	Urate
+30890|Vitamin D	Vitamin D
