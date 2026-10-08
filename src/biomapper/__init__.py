@@ -43,6 +43,7 @@ Quick start::
 
 from biomapper._version import resolve_version as _resolve_version
 from biomapper.client import BioMapperClient
+from biomapper.cohorts import CohortHarmonizationReport, harmonize_cohorts
 from biomapper.dataset import map_dataset_file_sync
 from biomapper.exceptions import (
     BioMapperAuthError,
@@ -95,6 +96,9 @@ __all__ = [
     "list_annotators",
     "list_vocabularies",
     "summarize",
+    # Cohort harmonization protocol (maps both cohorts, then links them with harmonize())
+    "harmonize_cohorts",
+    "CohortHarmonizationReport",
     # Models
     "MappingResult",
     "MappingSummary",
