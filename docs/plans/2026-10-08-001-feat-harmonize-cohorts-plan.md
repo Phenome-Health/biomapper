@@ -55,7 +55,7 @@ Add `harmonize_cohorts()` in a new `src/biomapper/cohorts.py`: read two cohort t
 
 ## Implementation Units
 
-- [ ] **Unit 1: Module skeleton, exports, pandas-free provenance**
+- [x] **Unit 1: Module skeleton, exports, pandas-free provenance**
 
 **Goal:** `src/biomapper/cohorts.py` with the public function signature and report dataclass stubs; move `fetch_kg_build_info` to `src/biomapper/_provenance.py`.
 **Requirements:** R1, R11
@@ -67,7 +67,7 @@ Add `harmonize_cohorts()` in a new `src/biomapper/cohorts.py`: read two cohort t
 - `test_core_install_stays_light` still passes.
 **Verification:** existing test suite green.
 
-- [ ] **Unit 2: Inputs, keys, categories**
+- [x] **Unit 2: Inputs, keys, categories**
 
 **Goal:** Normalize inputs into records with stable keys; resolve entity aliases.
 **Requirements:** R2, R3, R12
@@ -81,7 +81,7 @@ Add `harmonize_cohorts()` in a new `src/biomapper/cohorts.py`: read two cohort t
 - Vocabulary declaration normalizes `KEGG.COMPOUND` and `KEGG` to one key; a column named in the declaration but missing from the table raises.
 **Verification:** records and keys deterministic across calls.
 
-- [ ] **Unit 3: Arms and identifier classification**
+- [x] **Unit 3: Arms and identifier classification**
 
 **Goal:** Names-only arm for both cohorts; identifier arm for shared vocabularies only.
 **Requirements:** R4, R5, R9, R13
@@ -95,7 +95,7 @@ Add `harmonize_cohorts()` in a new `src/biomapper/cohorts.py`: read two cohort t
 - A chunk error in the fake mapper produces errored rows, not an exception; they are counted.
 **Verification:** mapper call log shows no requests carrying one-sided identifiers.
 
-- [ ] **Unit 4: Review queue from one-sided identifiers**
+- [x] **Unit 4: Review queue from one-sided identifiers**
 
 **Goal:** Statused list comparing name entry and code entry per one-sided code.
 **Requirements:** R7
@@ -109,7 +109,7 @@ Add `harmonize_cohorts()` in a new `src/biomapper/cohorts.py`: read two cohort t
 - Two LOINC columns on one row -> two lines.
 **Verification:** statuses cover every coded row exactly once per code.
 
-- [ ] **Unit 5: Report, diff, link bases, output, pins**
+- [x] **Unit 5: Report, diff, link bases, output, pins**
 
 **Goal:** `CohortHarmonizationReport` with summary and writer.
 **Requirements:** R6, R8, R10, R11
@@ -123,7 +123,7 @@ Add `harmonize_cohorts()` in a new `src/biomapper/cohorts.py`: read two cohort t
 - `write()` creates files; no absolute paths inside the JSON beyond the output path itself; pins present with "self-reported, known stale" label on the API version.
 **Verification:** `summary()` round-trips through JSON.
 
-- [ ] **Unit 6: Replay fixture and success-criteria tests; docs**
+- [x] **Unit 6: Replay fixture and success-criteria tests; docs**
 
 **Goal:** Offline proof on real panels; user docs.
 **Requirements:** success criteria
