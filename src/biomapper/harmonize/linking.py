@@ -14,6 +14,13 @@ run, or literals in tests) and never calls the API or the knowledge graph.
 resolved entities whose keys match link even when resolution put them on different nodes. It is
 opt-in and currently intended for metabolite panels only. Every link records its basis, so a report
 can separate identifier evidence from a name match. See :func:`harmonize` for the exact rules.
+
+Every link also records how many partners each side has (``a_partners`` / ``b_partners``). A link
+whose either side has more than one partner is ``ambiguous``: several distinct entities landed on
+the same entry, so the pair is a candidate for review rather than a confident match. Measured on
+NECS x Xu et al. 2022 against Metabolon compound IDs (2026-10-27, engine cdd05e5): all links 439 of
+575 true (76.3% precision, 98.4% recall); one-to-one links only 397 of 398 (99.7%, recall 89.0%);
+the 177 ambiguous links held 42 true matches.
 """
 
 from __future__ import annotations
@@ -53,7 +60,8 @@ class Link:
 
     ``shared`` carries the CURIE(s) that formed an identifier link, for audit (empty for a link
     formed by name alone). ``basis`` is the strongest basis that applies (see ``BASIS_ORDER``) and
-    ``bases`` is every basis that applies.
+    ``bases`` is every basis that applies. ``a_partners`` is how many B-side entities ``a_key``
+    links to in the same result, and ``b_partners`` how many A-side entities ``b_key`` links to.
     """
 
     a_key: str
@@ -61,11 +69,37 @@ class Link:
     shared: frozenset[str]
     basis: str = "identifier"
     bases: frozenset[str] = frozenset({"identifier"})
+    a_partners: int = 1
+    b_partners: int = 1
 
     @property
     def name_only(self) -> bool:
         """True when no identifier evidence supports the link, only a name match."""
         return not (self.bases & {"node", "identifier"})
+
+    @property
+    def ambiguous(self) -> bool:
+        """True when either side links to more than one entity: a review candidate, not a match.
+
+        Typical cause: distinct entities in one cohort resolved to the same entry (a lipid class,
+        cis/trans or mono/disulfate forms on one node), so each links to all of them.
+        """
+        return self.a_partners > 1 or self.b_partners > 1
+
+
+def with_partner_counts(links: Iterable[Link]) -> tuple[Link, ...]:
+    """Return the links with ``a_partners`` / ``b_partners`` set from this set of links.
+
+    The counts depend on the whole set, so they are computed once, after every link is known;
+    a link's flag is never a property of the pair alone.
+    """
+    materialized = tuple(links)
+    a_count = Counter(lk.a_key for lk in materialized)
+    b_count = Counter(lk.b_key for lk in materialized)
+    return tuple(
+        replace(lk, a_partners=a_count[lk.a_key], b_partners=b_count[lk.b_key])
+        for lk in materialized
+    )
 
 
 @dataclass(frozen=True)
@@ -105,7 +139,7 @@ def link_by_intersection(
             for b_key in idx_b.get(c, ()):
                 pair_shared[(a_key, b_key)].add(c)
 
-    links = tuple(
+    links = with_partner_counts(
         Link(a_key=a, b_key=b, shared=frozenset(shared))
         for (a, b), shared in sorted(pair_shared.items())
     )
@@ -125,7 +159,14 @@ def link_by_intersection(
 # one of these would overwrite it, so the label is rejected rather than allowed to corrupt the
 # summary's shape.
 _RESERVED_SUMMARY_KEYS: frozenset[str] = frozenset(
-    {"n_links", "links_by_basis", "n_name_only_links", "n_name_match_withheld"}
+    {
+        "n_links",
+        "links_by_basis",
+        "n_name_only_links",
+        "n_name_match_withheld",
+        "n_one_to_one_links",
+        "n_ambiguous_links",
+    }
 )
 
 
@@ -246,6 +287,16 @@ class HarmonizationResult:
         """Links with no identifier evidence behind them, only a name match."""
         return sum(1 for lk in self.links if lk.name_only)
 
+    @property
+    def one_to_one_links(self) -> tuple[Link, ...]:
+        """Links where each side has exactly one partner: the confident matches."""
+        return tuple(lk for lk in self.links if not lk.ambiguous)
+
+    @property
+    def ambiguous_links(self) -> tuple[Link, ...]:
+        """Links where either side has several partners: candidates for review, not matches."""
+        return tuple(lk for lk in self.links if lk.ambiguous)
+
     # -- what could link -------------------------------------------------
 
     @property
@@ -313,6 +364,8 @@ class HarmonizationResult:
             "links_by_basis": self.links_by_basis,
             "n_name_only_links": self.n_name_only_links,
             "n_name_match_withheld": len(self.name_match_withheld),
+            "n_one_to_one_links": len(self.one_to_one_links),
+            "n_ambiguous_links": len(self.ambiguous_links),
             self.a_label: {
                 "total": self.n_a_total,
                 "comparable": self.n_a_comparable,
@@ -437,7 +490,9 @@ def harmonize(
     Returns:
         A :class:`HarmonizationResult`. Entities that resolved to nothing are reported in
         ``a_unresolved`` / ``b_unresolved`` as refusal candidates, and entities whose mapping call
-        errored in ``a_errors`` / ``b_errors``. Neither is silently dropped.
+        errored in ``a_errors`` / ``b_errors``. Neither is silently dropped. Each link carries its
+        partner counts; ``one_to_one_links`` are the confident matches and ``ambiguous_links``
+        (either side has several partners) are review candidates. All links are still returned.
 
     Raises:
         ValueError: If either side has duplicate keys (see ``key``), or if ``a_label`` and
@@ -466,7 +521,7 @@ def harmonize(
         # A short casefold-only pair already linked by identifier needs no review.
         withheld = sorted(p for p in short if p not in bases)
 
-    links = tuple(
+    links = with_partner_counts(
         Link(
             a_key=a,
             b_key=b,
