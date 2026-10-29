@@ -276,6 +276,8 @@ def test_summary_keeps_both_cohorts_and_the_link_count_separate():
         "links_by_basis",
         "n_name_only_links",
         "n_name_match_withheld",
+        "n_one_to_one_links",
+        "n_ambiguous_links",
         "x",
         "y",
     }

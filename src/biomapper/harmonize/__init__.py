@@ -44,6 +44,7 @@ from biomapper.harmonize.linking import (
     link_by_intersection,
     name_matches,
     normalize_name,
+    with_partner_counts,
 )
 
 __all__ = [
@@ -58,6 +59,7 @@ __all__ = [
     "harmonize",
     "normalize_name",
     "name_matches",
+    "with_partner_counts",
     "BASIS_ORDER",
     "NAME_CASEFOLD_MIN_LENGTH_EXCLUSIVE",
     "Link",

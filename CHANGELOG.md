@@ -5,6 +5,17 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **`harmonize()` flags ambiguous links.** Every `Link` now records `a_partners` and `b_partners`
+  (how many entities each side links to), and `Link.ambiguous` is true when either is above one:
+  several distinct entities landed on one entry, so the pair is a review candidate rather than a
+  confident match. `HarmonizationResult` adds `one_to_one_links` and `ambiguous_links`, and
+  `summary()` adds `n_one_to_one_links` and `n_ambiguous_links` (both now reserved cohort labels).
+  All links are still returned; nothing is dropped. On NECS x Xu et al. 2022 scored against
+  Metabolon compound IDs, one-to-one links were 397 of 398 correct (99.7%) versus 439 of 575
+  (76.3%) for all links; the 177 ambiguous links held 42 true matches.
+
 ### Changed
 
 - The canonical repository is now [Phenome-Health/biomapper](https://github.com/Phenome-Health/biomapper).
