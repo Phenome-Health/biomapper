@@ -1,0 +1,74 @@
+{
+ "category": "biolink:ClinicalMeasurement",
+ "cross_check_vs_S16": {
+  "different": 0,
+  "same_entry": 86,
+  "single_code_rows_compared": 86,
+  "source": "labs_edge_rollup_20261008T171112Z"
+ },
+ "description": "UK Biobank x Arivale clinical labs replay for harmonize_cohorts(entity='labs'): panel metadata only (keys, names, LOINC codes), no participant data.",
+ "expected": {
+  "names_only_one_to_one": 21,
+  "names_only_pairs": 37,
+  "review_by_status": {
+   "agree": 16,
+   "code_unresolved": 7,
+   "disagree": 69,
+   "errored": 0,
+   "name_unresolved_code_resolved": 0
+  }
+ },
+ "pin": {
+  "api": {
+   "base_url": "https://biomapper.expertintheloop.io/api/v1",
+   "engine_release": "unavailable",
+   "error": null,
+   "self_reported_version": "0.1.0",
+   "self_reported_version_label": "self-reported, known stale",
+   "status": "healthy"
+  },
+  "biomapper_version": "1.5.5",
+  "built_utc": "2026-10-08T18:25:38.634346+00:00",
+  "kestrel_after": {
+   "biolink_version": "4.2.5",
+   "build_timestamp": "2026-09-25T00:34:42.623612+00:00",
+   "git_commit": "3dd08a5b7b17e320ceb0c0091e09b781d4d90242",
+   "kestrel_version": "0.3.0",
+   "kg_version": "2.3.0",
+   "kraken_package_version": "2.2.0"
+  },
+  "kestrel_before": {
+   "biolink_version": "4.2.5",
+   "build_timestamp": "2026-09-25T00:34:42.623612+00:00",
+   "git_commit": "3dd08a5b7b17e320ceb0c0091e09b781d4d90242",
+   "kestrel_version": "0.3.0",
+   "kg_version": "2.3.0",
+   "kraken_package_version": "2.2.0"
+  },
+  "required": [
+   "2.3.0",
+   "2.2.0",
+   "3dd08a5b"
+  ],
+  "s9_pin": {
+   "git_commit": "3dd08a5b",
+   "kestrel_version": "0.3.0",
+   "kg_version": "2.3.0",
+   "kraken_package_version": "2.2.0"
+  }
+ },
+ "replay_key": "sha256 of json {t: entity type, n: name, i: identifiers sent (sorted), m: annotation_mode}, sort_keys",
+ "sha256": {
+  "arivale_labs.tsv": "c18b4da1826f7bb9a9b46449e0a31dafadb1d83a099e6c3cd7c150de88f30a0e",
+  "replay.json.gz": "03ad89c98d33b53abd90e618d5922058d4f1bac159174701aa7f6bf50876a4ec",
+  "ukbb_labs.tsv": "23ca8e661742e06fdae3326b71f2a618efcbfb9a61753fda6d7ccbd1f97ec27e"
+ },
+ "sources": {
+  "names_only": "stored S9 run labs_category_measurement_20261006T184300Z (map_entity, mode missing, no identifiers), reused",
+  "requests_by_source": {
+   "live": 92,
+   "stored_s9": 193
+  },
+  "review": "live re-map of Arivale LOINC codes, one per request, annotation_mode none, via BatchedApiMapper (batch 10, timeout 300 s)"
+ }
+}
