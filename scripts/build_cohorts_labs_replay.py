@@ -268,7 +268,7 @@ def main() -> None:
         },
         "expected": {
             "names_only_pairs": s["arms"]["names_only"]["n_links"],
-            "names_only_one_to_one": s["arms"]["names_only"]["n_one_to_one"],
+            "names_only_one_to_one": s["arms"]["names_only"]["n_one_to_one_links"],
             "review_by_status": s["review"]["by_status"],
         },
         "sha256": {

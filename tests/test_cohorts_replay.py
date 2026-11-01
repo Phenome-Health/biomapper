@@ -90,7 +90,8 @@ def test_labs_reproduce_the_names_only_clinical_measurement_result(labs_run) -> 
     s = report.summary()
     assert s["category"] == "biolink:ClinicalMeasurement"
     assert s["arms"]["names_only"]["n_links"] == 37
-    assert s["arms"]["names_only"]["n_one_to_one"] == 21
+    assert s["arms"]["names_only"]["n_one_to_one_links"] == 21
+    assert s["arms"]["names_only"]["n_ambiguous_links"] == 16
     assert s["arms"]["names_only"]["ukbb"]["total"] == 65
     assert s["arms"]["names_only"]["arivale"]["total"] == 128
     assert s["arms"]["names_only"]["arivale"]["unresolved"] == 1

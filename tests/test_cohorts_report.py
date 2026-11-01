@@ -40,7 +40,9 @@ def test_diff_by_key_pair() -> None:
     assert diff.both == (("a2", "b2"),)
 
 
-@pytest.mark.parametrize("label", ["n_links", "links_by_basis", "n_one_to_one"])
+@pytest.mark.parametrize(
+    "label", ["n_links", "links_by_basis", "n_one_to_one_links", "n_ambiguous_links"]
+)
 def test_reserved_labels_raise_before_any_mapping(label: str) -> None:
     mapper = FakeMapper(lambda n, i, m, t: mr(n))
     with pytest.raises(ValueError, match="reserved"):
@@ -125,8 +127,9 @@ def test_summary_reports_both_arms_the_diff_and_round_trips_through_json(tmp_pat
     assert s["category"] == "biolink:SmallMolecule"
     assert s["vocabularies"] == {"shared": ["HMDB"], "one_sided": {"KEGG": "arivale"}}
     names, ident = s["arms"]["names_only"], s["arms"]["identifier"]
-    assert names["n_links"] == 1 and names["n_one_to_one"] == 1
-    assert ident["n_links"] == 2 and ident["n_one_to_one"] == 2
+    assert names["n_links"] == 1 and names["n_one_to_one_links"] == 1
+    assert ident["n_links"] == 2 and ident["n_one_to_one_links"] == 2
+    assert names["n_ambiguous_links"] == 0 and ident["n_ambiguous_links"] == 0
     assert set(names["links_by_basis"]) == {"node", "identifier", "name_exact", "name_casefold"}
     assert ident["links_by_basis"]["node"] == 2
     assert names["ukbb"]["unresolved"] == 0 and names["arivale"]["errors"] == 0
@@ -167,8 +170,12 @@ def test_write_to_an_override_path_and_no_absolute_paths_in_json(tmp_path) -> No
         assert str(tmp_path) not in text
         assert not re.search(r'"/(home|tmp|Users)/', text)
     links = (out / "links_identifier.tsv").read_text().splitlines()
-    assert links[0].split("\t")[:4] == ["ukbb_key", "arivale_key", "basis", "bases"]
+    assert links[0].split("\t") == [
+        "ukbb_key", "arivale_key", "basis", "bases", "shared_identifiers",
+        "a_partners", "b_partners", "one_to_one",
+    ]
     assert len(links) == 3
+    assert all(row.split("\t")[5:] == ["1", "1", "True"] for row in links[1:])
     queue = (out / "review_queue.tsv").read_text().splitlines()
     assert queue[0].split("\t") == [
         "cohort", "key", "name", "vocabulary", "code", "name_entry", "code_entry", "status",

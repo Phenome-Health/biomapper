@@ -54,6 +54,7 @@ from biomapper.harmonize.linking import (
     Link,
     _require_distinct_labels,
     harmonize,
+    with_partner_counts,
 )
 from biomapper.mapper import map_entities
 from biomapper.models import MappingResult
@@ -186,12 +187,11 @@ def resolve_category(entity: str, category: str | None = None) -> str:
 def one_to_one(links: Iterable[Link]) -> list[Link]:
     """Links whose A key and B key each appear in exactly one link: the conservative pair count.
 
-    Ported from the UK Biobank x Arivale SOP notebook unchanged.
+    Same definition as the UK Biobank x Arivale SOP notebook and as ``harmonize()``'s
+    ``one_to_one_links`` (links that are not ``ambiguous``). Partner counts are recomputed from
+    ``links`` itself, so any set of links can be passed, not only a ``HarmonizationResult``'s.
     """
-    materialized = list(links)
-    a_counts = Counter(lk.a_key for lk in materialized)
-    b_counts = Counter(lk.b_key for lk in materialized)
-    return [lk for lk in materialized if a_counts[lk.a_key] == 1 and b_counts[lk.b_key] == 1]
+    return [lk for lk in with_partner_counts(links) if not lk.ambiguous]
 
 
 def review_status(name_result: MappingResult, code_result: MappingResult) -> str:
@@ -552,20 +552,14 @@ def _new_run_dir(base: Path) -> Path:
             n += 1
 
 
-# Fields CohortHarmonizationReport adds to each arm's per-cohort summary; a cohort label equal to
-# one of these would have its counts overwritten.
-_RESERVED_COHORT_LABELS = frozenset({"n_one_to_one"})
-
-
 def _require_cohort_labels(a_label: str, b_label: str) -> None:
-    """Reject labels that collide in the report's summary or in its saved filenames."""
+    """Reject labels that collide in the report's summary or in its saved filenames.
+
+    Each arm's summary is ``HarmonizationResult.summary()`` unchanged, so the reserved scalar keys
+    (``n_links``, ``n_one_to_one_links``, ``n_ambiguous_links``, ...) are checked by
+    ``_require_distinct_labels`` before any mapping call.
+    """
     _require_distinct_labels(a_label, b_label)
-    for side, label in (("a_label", a_label), ("b_label", b_label)):
-        if label in _RESERVED_COHORT_LABELS:
-            raise ValueError(
-                f"{side}={label!r} is reserved: the report summary emits it as a scalar field, "
-                "so a cohort under that label would lose its counts."
-            )
     if _safe(a_label) == _safe(b_label):
         raise ValueError(
             f"a_label={a_label!r} and b_label={b_label!r} both save as {_safe(a_label)!r}, so "
@@ -605,7 +599,8 @@ class CohortHarmonizationReport:
 
     @staticmethod
     def _arm_summary(result: HarmonizationResult) -> dict[str, Any]:
-        return {**result.summary(), "n_one_to_one": len(one_to_one(result.links))}
+        # harmonize() already reports n_one_to_one_links / n_ambiguous_links per arm.
+        return result.summary()
 
     def summary(self) -> dict[str, Any]:
         """Counts-only summary: safe to log or serialize (round-trips through JSON)."""
@@ -637,11 +632,10 @@ class CohortHarmonizationReport:
         }
 
     def _write_links(self, directory: Path, arm: str, result: HarmonizationResult) -> None:
-        exclusive = {(lk.a_key, lk.b_key) for lk in one_to_one(result.links)}
         _write_tsv(
             directory / f"links_{arm}.tsv",
             [f"{self.a_label}_key", f"{self.b_label}_key", "basis", "bases", "shared_identifiers",
-             "one_to_one"],
+             "a_partners", "b_partners", "one_to_one"],
             (
                 [
                     lk.a_key,
@@ -649,7 +643,9 @@ class CohortHarmonizationReport:
                     lk.basis,
                     "|".join(sorted(lk.bases)),
                     "|".join(sorted(lk.shared)),
-                    (lk.a_key, lk.b_key) in exclusive,
+                    lk.a_partners,
+                    lk.b_partners,
+                    not lk.ambiguous,
                 ]
                 for lk in result.links
             ),

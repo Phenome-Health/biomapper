@@ -22,7 +22,9 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   for vocabularies both cohorts declare, warns about and never supplies one-sided vocabularies,
   turns one-sided codes into a review queue (code-only resolution compared with the names-only
   entry), links each arm with the unchanged `harmonize()`, and returns one report with both arms,
-  their diff, one-to-one counts, link bases, warnings and pins. Results are written to a
+  their diff, one-to-one and ambiguous link counts (`harmonize()`'s `n_one_to_one_links` /
+  `n_ambiguous_links`; link tables add `a_partners`, `b_partners` and `one_to_one`), link bases,
+  warnings and pins. Results are written to a
   timestamped `biomapper_runs/` directory by default, each arm as it completes. On the UK Biobank x
   Arivale labs replay it reproduces the names-only ClinicalMeasurement result (37 pairs, 21
   one-to-one) and flags LOINC as one-sided.

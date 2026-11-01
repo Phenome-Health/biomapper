@@ -398,7 +398,7 @@ report = harmonize_cohorts(
     b_label="arivale",
 )
 # UserWarning: LOINC is declared only for 'arivale' ... not supplied as mapping input
-report.summary()["arms"]["names_only"]   # pairs, one-to-one, link bases, unresolved, errors
+report.summary()["arms"]["names_only"]   # pairs, one-to-one/ambiguous, link bases, ...
 report.review_queue                      # codes whose entry disagrees with the name's entry
 # harmonize_cohorts: wrote results to .../biomapper_runs/harmonize_cohorts_20261008T190000Z
 ```
@@ -421,8 +421,10 @@ What it does:
    `report.review_queue` lists everything but `agree`, with both entries. On the labs this lists
    Arivale "Glucose", whose name lands on one entry while its LOINC code 2345-7 says another.
 4. **Report.** Both `HarmonizationResult`s (`report.names_only`, `report.identifier`), their
-   `diff` (pairs found only by names, only with identifiers, by both), one-to-one counts, link
-   bases, warnings, excluded rows (blank names), and pins.
+   `diff` (pairs found only by names, only with identifiers, by both), one-to-one and ambiguous
+   link counts per arm (`n_one_to_one_links` / `n_ambiguous_links`, as in `harmonize()`), link
+   bases, warnings, excluded rows (blank names), and pins. Each arm's link table carries
+   `a_partners`, `b_partners` and a `one_to_one` flag, so ambiguous links can be reviewed.
 
 **Output by default.** Results are written to `biomapper_runs/harmonize_cohorts_<UTC stamp>/`
 under the current directory (override with `output_dir=`; `save=False` to skip;
