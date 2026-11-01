@@ -44,6 +44,8 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - New notebook `ukbb_arivale_harmonization_sop.ipynb`: the UK Biobank x Arivale harmonization SOP,
   pinned to biomapper 1.5.5, with an offline replay so it runs without the hosted API (#30).
   Notebooks are not part of the wheel.
+- README documents the ambiguous-link flag under `harmonize()` and notes 1.5.6 as the minimum
+  version for `harmonize_cohorts()` and the flag.
 
 ## [1.5.5] - 2026-09-29
 
