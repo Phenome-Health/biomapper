@@ -5,6 +5,8 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.5.6] - 2026-10-31
+
 ### Added
 
 - **`harmonize()` flags ambiguous links.** Every `Link` now records `a_partners` and `b_partners`
@@ -36,6 +38,12 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The canonical repository is now [Phenome-Health/biomapper](https://github.com/Phenome-Health/biomapper).
   The package's homepage, repository and documentation URLs, the README clone command and the
   tutorial's issues link point there; PyPI's project page picks this up with the next release.
+
+### Documentation
+
+- New notebook `ukbb_arivale_harmonization_sop.ipynb`: the UK Biobank x Arivale harmonization SOP,
+  pinned to biomapper 1.5.5, with an offline replay so it runs without the hosted API (#30).
+  Notebooks are not part of the wheel.
 
 ## [1.5.5] - 2026-09-29
 
@@ -277,7 +285,7 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - Run manifests record `monti_s03_derived` per pair alongside the published overlap.
 
-**Published to PyPI:** 0.1.0 through 1.4.0, and 1.5.2 through 1.5.4. Entries tagged *(not published)* were
+**Published to PyPI:** 0.1.0 through 1.4.0, and 1.5.2 through 1.5.5. Entries tagged *(not published)* were
 version bumps that landed in this repository but were never uploaded to the release index, so
 `pip install biomapper==<that version>` will not resolve. This matters for any claim about which
 release first contained a module: the source tree and the PyPI index diverge across the 1.5.x
