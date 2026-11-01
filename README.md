@@ -25,6 +25,8 @@ pip install biomapper
 pip install 'biomapper[benchmarks]'
 ```
 
+**Use 1.5.6 or later for `harmonize_cohorts()` and ambiguous-link flags** (see [Harmonization](#harmonization-cross-dataset-equivalence)).
+
 **Use 1.5.4 or later to call the hosted deployment without a key** (see [API keys](#api-keys-optional)).
 
 **Use 1.5.3 or later for the benchmark suite.** Earlier published releases, up to and including
@@ -343,6 +345,14 @@ case-sensitive naming conventions (gene and protein symbols, for example). Rules
 `report.summary()` counts links by basis (`links_by_basis`) and reports `n_name_only_links` (links
 with no identifier evidence) and `n_name_match_withheld`, so a report can say "X linked by
 identifier, Y by name only". Every link also carries `bases`, the full set of bases that apply.
+
+**Ambiguous links** (from 1.5.6). Every link records `a_partners` and `b_partners`, how many
+entities each side links to. `link.ambiguous` is true when either is above one: several distinct
+entities landed on one entry, so the pair is a review candidate rather than a confident match.
+`report.one_to_one_links` and `report.ambiguous_links` split the links, and `summary()` adds
+`n_one_to_one_links` and `n_ambiguous_links`. All links are still returned; nothing is dropped.
+On NECS x Xu et al. 2022 scored against Metabolon compound IDs, one-to-one links were 397 of 398
+correct (99.7%) versus 439 of 575 (76.3%) for all links.
 
 ```python
 from biomapper import map_entities
