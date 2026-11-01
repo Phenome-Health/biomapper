@@ -1,0 +1,129 @@
+key	name	Labcorp LOINC ID	Quest LOINC ID
+A/G RATIO|A/G ratio	A/G ratio	1759-0	1759-0
+ADIPONECTIN, SERUM|Adiponectin	Adiponectin		
+ALAT (SGPT)|Alanine Transaminase	Alanine Transaminase	1742-6	1742-6
+ALBUMIN|Albumin	Albumin	1751-7	1751-7
+ALKALINE PHOSPHATASE|Alkaline Phosphatase	Alkaline Phosphatase	6768-6	6768-6
+ANTIOXID CAP, TOTAL|Total Antioxidant Capacity	Total Antioxidant Capacity		
+ARACHIDONIC ACID|Arachidonic acid	Arachidonic acid	SOLOINC	
+ARSENIC, BLOOD|Arsenic	Arsenic		5583-0
+ASAT (SGOT)|Aspartate Transaminase	Aspartate Transaminase	1920-8	1920-8
+BASOPHILS|Basophils	Basophils	706-2	706-2
+BASOPHILS ABSOLUTE|Absolute Basophils Count	Absolute Basophils Count	704-7	704-7
+BILIRUBIN, DIRECT|Direct Bilirubin	Direct Bilirubin		1968-7
+BILIRUBIN, INDIRECT|Indirect Bilirubin	Indirect Bilirubin		1971-1
+BILIRUBIN, TOTAL|Total Bilirubin	Total Bilirubin	1975-2	1975-2
+BUN/CREAT RATIO|Bun/Creatinine Ratio	Bun/Creatinine Ratio	3097-3	3097-3
+CALCIUM|Calcium	Calcium	17861-6	17861-6
+CARBON DIOXIDE (CO2)|Carbon Dioxide	Carbon Dioxide	2028-9	2028-9
+CHLORIDE|Chloride	Chloride	2075-0	2075-0
+CHOLESTEROL, TOTAL|Total cholesterol	Total cholesterol	2093-3	2093-3
+COPPER, RBC|Copper	Copper		5630-9
+CREATININE ENZ, SER|Creatinine	Creatinine	2160-0	2160-0
+CRP HIGH SENSITIVITY|High-sensitivity CRP	High-sensitivity CRP	30522-7	30522-7
+DHA|DHA	DHA	SOLOINC	
+DPA|DPA	DPA	SOLOINC	
+EOSINOPHILS|Eosinophils	Eosinophils	713-8	713-8
+EOSINOPHILS ABSOLUTE|Absolute Eosinophils Count	Absolute Eosinophils Count	711-2	711-2
+EPA|EPA	EPA	SOLOINC	
+EPA/AA|EPA/AA Ratio	EPA/AA Ratio		
+FERRITIN|Ferritin	Ferritin	2276-4	2276-4
+FOLIC ACID, SERUM|Folic Acid	Folic Acid		2284-8
+GFR, MDRD|Glomerular Filtration Rate	Glomerular Filtration Rate	62238-1	33914-3
+GFR, MDRD, AFRICAN AM|eGFR If Africn Am	eGFR If Africn Am	62238-1	48643-1
+GGT|Gamma-glutamyl transpeptidase	Gamma-glutamyl transpeptidase	2324-2	2324-2
+GLOBULIN|Globulin	Globulin	10834-0	10834-0
+GLUCOSE|Glucose	Glucose	2345-7	2345-7
+GLUTATHIONE, TOTAL|Glutathione	Glutathione		65363-4
+GLYCOHEMOGLOBIN A1C|Hemoglobin A1C	Hemoglobin A1C	4548-4	4548-4
+HDL CHOL DIRECT|HDL cholesterol	HDL cholesterol	2085-9	2085-9
+HDL LARGE|HDL large particle number	HDL large particle number		
+HDL PARTICLE NUMBER|HDL-P (Total)	HDL-P (Total)	49748-7	
+HDL PARTICLE PERCENTILE|HDL particle percentile	HDL particle percentile		
+HDL SIZE PERCENTILE|HDL size percentile	HDL size percentile		
+HEMATOCRIT|Hematocrit	Hematocrit	4544-3	4544-3
+HEMOGLOBIN|Hemoglobin	Hemoglobin	718-7	718-7
+HOMA-IR|HOMA-IR	HOMA-IR		
+HOMOCYSTEINE, SERUM|Homocysteine	Homocysteine		13965-9
+IDL PARTICLE NUMBER|IDL particle number	IDL particle number		
+IL-6|IL-6	IL-6		26881-3
+IL-8|IL-8	IL-8		33211-4
+IMMATURE GRANULOCYTES|Immature Granulocytes	Immature Granulocytes	38518-7	
+IMMATURE GRANULOCYTES ABSOLUTE|Immature Grans (Abs)	Immature Grans (Abs)	51584-1	
+INSULIN|Insulin	Insulin	20448-7	20448-7
+LACTIC DEHYDROGENASE|Lactate Dehydrogenase	Lactate Dehydrogenase		14805-6
+LARGE HDL PARTICLE PERCENTILE|Large HDL particle percentile	Large HDL particle percentile		
+LARGE LDL PARTICLE NUMBER|Large LDL particle number	Large LDL particle number		
+LARGE MED HDL PARTICLE NUMBER|Large medium HDL particle number	Large medium HDL particle number		
+LARGE MED VLDL PARTICLE NUMBER|Large medium VLDL particle number	Large medium VLDL particle number		
+LARGE VLDL PARTICLE PERCENTILE|Large VLDL particle percentile	Large VLDL particle percentile		
+LDL MEDIUM|LDL medium particle number	LDL medium particle number		
+LDL PARTICLE NUMBER|LDL particle number	LDL particle number	54434-6	
+LDL PEAK SIZE|LDL peak size	LDL peak size		
+LDL SIZE PERCENTILE|LDL size percentile	LDL size percentile		
+LDL SMALL|LDL small particle number	LDL small particle number	43727-7	
+LDL-CHOL CALCULATION|LDL cholesterol	LDL cholesterol	13457-7	13457-7
+LDL_SIZE|LDL Size	LDL Size	17782-4	
+LEAD, BLOOD|Lead	Lead		5671-3
+LINOLEIC_ACID|Linoleic Acid	Linoleic Acid	SOLOINC	
+LPIR SCORE PERCENTILE|LP-IR Score percentile	LP-IR Score percentile		
+LPIR_SCORE|LP-IR Score	LP-IR Score	62255-5	
+LP_PLA2|LP-PLA2	LP-PLA2		
+LYMPHOCYTES|Lymphocytes	Lymphocytes	736-9	736-9
+LYMPHOCYTES ABSOLUTE|Absolute Lymphocytes Count	Absolute Lymphocytes Count	731-0	731-0
+MAGNESIUM, SERUM|Magnesium	Magnesium		
+MANGANESE, SERUM|Manganese	Manganese		5683-8
+MCH|Mean Corpuscular Hemoglobin	Mean Corpuscular Hemoglobin	785-6	785-6
+MCHC|Mean Corpuscular Hemoglobin Concentration	Mean Corpuscular Hemoglobin Concentration	786-4	786-4
+MCV|Mean Corpuscular Volume	Mean Corpuscular Volume	787-2	787-2
+MEDIUM HDL PARTICLE NUMBER|Medium HDL particle percentile	Medium HDL particle percentile		
+MEDIUM VLDL PARTICLE NUMBER|Medium VLDL particle percentile	Medium VLDL particle percentile		
+MERCURY, BLOOD|Mercury	Mercury		5685-3
+METHYLMALONIC ACID|Methylmalonic Acid	Methylmalonic Acid		13964-2
+MONOCYTES|Monocytes	Monocytes	5905-5	5905-5
+MONOCYTES ABSOLUTE|Absolute Monocytes Count	Absolute Monocytes Count	742-7	742-7
+MPV|Mean Platelet Volume	Mean Platelet Volume		776-5
+NEUTROPHIL, SEGS|Segmented Neutrophils	Segmented Neutrophils		764-1
+NEUTROPHILS ABSOLUTE|Absolute Neutrophils	Absolute Neutrophils		751-8
+OMEGA-3 INDEX|Omega 3 index	Omega 3 index	SOLOINC	
+OMEGA-6/OMEGA-3 RATIO|Omega-6 / Omega-3 ratio	Omega-6 / Omega-3 ratio	48382-6	
+OMEGA_3_TOTAL|Omega-3 total	Omega-3 total	35178-3	
+OMEGA_6_TOTAL|Omega-6 total	Omega-6 total	SOLOINC	
+OXLDL|Oxidized LDL	Oxidized LDL		
+PAI-1 ANTIGEN, QNT|PAI-1	PAI-1		
+PFFA|PFFA	PFFA		
+PHOSPHORUS INORGANIC|Phosphorus	Phosphorus		2777-1
+PLATELET COUNT|Platelet Count	Platelet Count		
+PLATELET COUNT THOUSAND|Platelets	Platelets	777-3	777-3
+POTASSIUM|Potassium	Potassium	2823-3	2823-3
+PROT AND PFFA CALC|Prot and PFFA Calc	Prot and PFFA Calc		
+PROTEIN|Protein	Protein		
+PROTEIN, TOTAL SERUM|Total Protein	Total Protein	2885-2	2885-2
+QUICKI|QUICKI	QUICKI		
+RDW|Red Blood Cell Distribution Width	Red Blood Cell Distribution Width	788-0	788-0
+RED CELL COUNT|Red Blood Cell Count	Red Blood Cell Count	789-8	789-8
+SELENIUM, SERUM|Selenium	Selenium		5724-0
+SMALL HDL PARTICLE NUMBER|Small HDL particle number	Small HDL particle number		
+SMALL LDL PARTICLE PERCENTILE|Small LDL particle percentile	Small LDL particle percentile		
+SMALL VLDL PARTICLE NUMBER|Small VLDL particle number	Small VLDL particle number		
+SODIUM|Sodium	Sodium	2951-2	2951-2
+SUPEROX DISMUT SOD|Superoxide Dismutase	Superoxide Dismutase		
+TNF-ALPHA|TNF-alpha	TNF-alpha		3074-2
+TOTAL NEUTROPHILS|Total Neutrophils	Total Neutrophils	770-8	770-8
+TOTAL NEUTROPHILS AB|Absolute Total Neutrophils Count	Absolute Total Neutrophils Count	751-8	26507-4
+TRIGLYCERIDES|Triglycerides	Triglycerides	2571-8	2571-8
+Triglyceride HDL Ratio|Triglyceride/HDL Ratio	Triglyceride/HDL Ratio		
+UREA NITROGEN|Urea	Urea	3094-0	3094-0
+URIC ACID|Uric Acid	Uric Acid	3084-1	3084-1
+VITAMIN D, 25-OH TOT|Vitamin D	Vitamin D	62292-8	62292-8
+VITAMIN D2, 25-OH|Vitamin D2, 25-OH	Vitamin D2, 25-OH		2236-8
+VITAMIN D3, 25-OH|Vitamin D3, 25-OH	Vitamin D3, 25-OH		1990-1
+VLDL LDL PARTICLE NUMBER|VLDL LDL particle number	VLDL LDL particle number		
+VLDL PARTICLE NUMBER|VLDL particle number	VLDL particle number		
+VLDL SIZE PERCENTILE|VLDL size percentile	VLDL size percentile		
+VLDL TRIGLYCERIDES|VLDL triglycerides	VLDL triglycerides		
+WHITE CELL COUNT|White Blood Cell Count	White Blood Cell Count	6690-2	6690-2
+ZINC|Zinc	Zinc		
+ZINC, RBC|Zinc, RBC	Zinc, RBC		5761-2
+leptin|Leptin	Leptin		
+zinc_plasma_or_serum|Zinc, Plasma or Serum	Zinc, Plasma or Serum	5763-8	

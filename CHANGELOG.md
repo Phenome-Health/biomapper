@@ -5,6 +5,8 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.5.6] - 2026-10-31
+
 ### Added
 
 - **`harmonize()` flags ambiguous links.** Every `Link` now records `a_partners` and `b_partners`
@@ -15,12 +17,35 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   All links are still returned; nothing is dropped. On NECS x Xu et al. 2022 scored against
   Metabolon compound IDs, one-to-one links were 397 of 398 correct (99.7%) versus 439 of 575
   (76.3%) for all links; the 177 ambiguous links held 42 true matches.
+- **`harmonize_cohorts()`** (new module `biomapper.cohorts`, exported at the package root with
+  `CohortHarmonizationReport`): the cohort harmonization protocol as one call. Reads two cohort
+  tables client-side (DataFrame, list of dicts, or TSV/CSV path), maps both by name with the
+  resolved category (`labs` resolves to `biolink:ClinicalMeasurement`), supplies identifiers only
+  for vocabularies both cohorts declare, warns about and never supplies one-sided vocabularies,
+  turns one-sided codes into a review queue (code-only resolution compared with the names-only
+  entry), links each arm with the unchanged `harmonize()`, and returns one report with both arms,
+  their diff, one-to-one and ambiguous link counts (`harmonize()`'s `n_one_to_one_links` /
+  `n_ambiguous_links`; link tables add `a_partners`, `b_partners` and `one_to_one`), link bases,
+  warnings and pins. Results are written to a
+  timestamped `biomapper_runs/` directory by default, each arm as it completes. On the UK Biobank x
+  Arivale labs replay it reproduces the names-only ClinicalMeasurement result (37 pairs, 21
+  one-to-one) and flags LOINC as one-sided.
+- `fetch_kg_build_info` and `KgBuildInfo` moved to the pandas-free `biomapper._provenance` so a
+  core install can pin a run; `biomapper.benchmarks.provenance` re-exports both unchanged.
 
 ### Changed
 
 - The canonical repository is now [Phenome-Health/biomapper](https://github.com/Phenome-Health/biomapper).
   The package's homepage, repository and documentation URLs, the README clone command and the
   tutorial's issues link point there; PyPI's project page picks this up with the next release.
+
+### Documentation
+
+- New notebook `ukbb_arivale_harmonization_sop.ipynb`: the UK Biobank x Arivale harmonization SOP,
+  pinned to biomapper 1.5.5, with an offline replay so it runs without the hosted API (#30).
+  Notebooks are not part of the wheel.
+- README documents the ambiguous-link flag under `harmonize()` and notes 1.5.6 as the minimum
+  version for `harmonize_cohorts()` and the flag.
 
 ## [1.5.5] - 2026-09-29
 
@@ -262,7 +287,7 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - Run manifests record `monti_s03_derived` per pair alongside the published overlap.
 
-**Published to PyPI:** 0.1.0 through 1.4.0, and 1.5.2 through 1.5.4. Entries tagged *(not published)* were
+**Published to PyPI:** 0.1.0 through 1.4.0, and 1.5.2 through 1.5.5. Entries tagged *(not published)* were
 version bumps that landed in this repository but were never uploaded to the release index, so
 `pip install biomapper==<that version>` will not resolve. This matters for any claim about which
 release first contained a module: the source tree and the PyPI index diverge across the 1.5.x
