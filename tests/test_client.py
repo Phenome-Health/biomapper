@@ -698,6 +698,32 @@ class TestMapEntities:
         assert 2.0 in sleep_calls
 
     @pytest.mark.asyncio()
+    @respx.mock
+    async def test_429_courtesy_sleep_can_be_disabled(
+        self,
+        client: BioMapperClient,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A caller that holds a lock across the call (the MCP server's request gate) must be
+        able to do its own backoff after releasing it, so the in-call sleep is opt-out."""
+        respx.post(f"{BASE_URL}/map/batch").mock(
+            return_value=httpx.Response(429, headers={"Retry-After": "2"})
+        )
+        sleep_calls: list[float] = []
+
+        async def fake_sleep(delay: float) -> None:
+            sleep_calls.append(delay)
+
+        monkeypatch.setattr("asyncio.sleep", fake_sleep)
+
+        async with client:
+            results = await client.map_entities(
+                [{"name": "a"}, {"name": "b"}], sleep_on_rate_limit=False
+            )
+        assert [r.error for r in results] == ["Rate limit exceeded (HTTP 429)."] * 2
+        assert sleep_calls == []
+
+    @pytest.mark.asyncio()
     async def test_cancelled_error_bubbles_out(
         self, client: BioMapperClient, monkeypatch: pytest.MonkeyPatch
     ) -> None:
