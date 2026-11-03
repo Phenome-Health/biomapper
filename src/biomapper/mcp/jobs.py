@@ -35,6 +35,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import shutil
 import socket
 import sys
@@ -49,7 +50,7 @@ import anyio.to_thread
 from pydantic import AnyUrl, BaseModel, Field
 
 from biomapper._checkpoint import CachePinMismatch, EntityCache, cache_key
-from biomapper._pins import collect_pins, kg_build_label, kg_verified
+from biomapper._pins import api_health, collect_pins, kg_build_label, kg_verified
 from biomapper._provenance import UNKNOWN
 from biomapper._version import resolve_version
 from biomapper.client import BioMapperClient
@@ -190,6 +191,56 @@ def _sha256(path: Path) -> str:
 
 def _under(path: Path, roots: list[Path]) -> bool:
     return any(path == root or path.is_relative_to(root) for root in roots)
+
+
+_JOB_ID = re.compile(r"[0-9a-f]{16}")
+_NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
+
+
+def _valid_job_id(job_id: str) -> bool:
+    """Job IDs are generated 16-hex-character digests; anything else never names a directory."""
+    return isinstance(job_id, str) and _JOB_ID.fullmatch(job_id) is not None
+
+
+def _resolved_under(path: Path, roots: list[Path]) -> bool:
+    """``path`` re-resolved now (symlinks followed, missing tail allowed) is inside ``roots``."""
+    try:
+        resolved = path.parent.resolve(strict=True) / path.name
+    except OSError:
+        return False
+    if resolved.is_symlink():
+        try:
+            resolved = resolved.resolve(strict=True)
+        except OSError:
+            return False
+    return _under(resolved, roots)
+
+
+def _create_exclusive(path: Path) -> IO[str]:
+    """Open a new file for writing; refuses an existing name, including a symlink."""
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | _NOFOLLOW, 0o644)
+    return os.fdopen(fd, "w", encoding="utf-8", newline="")
+
+
+async def probe_pins(config: ServerConfig, gate: RequestGate) -> dict[str, Any]:
+    """Collect pins with the BioMapper ``/health`` probe held behind the shared request gate.
+
+    The Kestrel probe does not touch the BioMapper API, so it runs outside the gate.
+    """
+    async with gate.hold(wait_budget_s=None):
+        api = await anyio.to_thread.run_sync(
+            lambda: api_health(config.base_url, config.api_key), abandon_on_cancel=True
+        )
+    return await anyio.to_thread.run_sync(
+        lambda: collect_pins(
+            probe=True,
+            base_url=config.base_url,
+            api_key=config.api_key,
+            kestrel_url=config.kestrel_url,
+            api=api,
+        ),
+        abandon_on_cancel=True,
+    )
 
 
 class JobLock:
@@ -437,6 +488,7 @@ class JobManager:
         self._seen_roots: set[Path] = set()
         self._last_good_chunk: float | None = None
         self._busy_job: str | None = None
+        self._run_roots: dict[str, list[Path]] = {}
 
     # -- roots ---------------------------------------------------------
 
@@ -473,21 +525,48 @@ class JobManager:
         _write_private(self._dir(job.job_id) / JOB_FILE, job.to_json())
 
     def _load(self, job_id: str) -> Job | None:
+        if not _valid_job_id(job_id):
+            return None
         if job_id in self._jobs:
             return self._jobs[job_id]
         path = self._dir(job_id) / JOB_FILE
         if not path.is_file():
             return None
         try:
-            return Job.load(path)
+            job = Job.load(path)
         except (OSError, ValueError, TypeError):
             logger.warning("unreadable job record %s", path)
             return None
+        return job if job.job_id == job_id else None
+
+    def _require_job(self, job_id: str) -> Job:
+        if not _valid_job_id(job_id):
+            raise JobError(
+                f"{job_id!r} is not a job ID; job IDs are 16 lowercase hex characters, as "
+                "returned by map_file or job_status."
+            )
+        job = self._load(job_id)
+        if job is None:
+            raise JobError(f"No job {job_id!r}.")
+        return job
 
     def _all_job_ids(self) -> list[str]:
         if not self.jobs_dir.is_dir():
             return []
-        return sorted(p.name for p in self.jobs_dir.iterdir() if (p / JOB_FILE).is_file())
+        return sorted(
+            p.name for p in self.jobs_dir.iterdir()
+            if _valid_job_id(p.name) and (p / JOB_FILE).is_file()
+        )
+
+    @staticmethod
+    def _within(job: Job, roots: list[Path]) -> bool:
+        """Every path the job reads or writes is, re-resolved now, inside ``roots``."""
+        if not roots:
+            return False
+        return all(
+            _resolved_under(p, roots)
+            for p in (Path(job.input_path), job.output, job.partial, job.provenance)
+        )
 
     def _take(self, job: Job) -> bool:
         """Acquire ownership of ``job``. True if this process now owns it."""
@@ -502,13 +581,17 @@ class JobManager:
         return True
 
     def _load_from_disk(self, job_id: str) -> Job | None:
+        if not _valid_job_id(job_id):
+            return None
         path = self._dir(job_id) / JOB_FILE
         try:
-            return Job.load(path)
+            job = Job.load(path)
         except (OSError, ValueError, TypeError):
             return None
+        return job if job.job_id == job_id else None
 
-    def _enqueue(self, job: Job, *, health: bool) -> None:
+    def _enqueue(self, job: Job, *, health: bool, roots: list[Path]) -> None:
+        self._run_roots[job.job_id] = list(roots)
         if health:
             self._needs_health.add(job.job_id)
         if job.job_id not in self._queued:
@@ -565,16 +648,15 @@ class JobManager:
         roots = self.allowed_roots(client_roots)
         await self._note_roots(roots)
         if job_id is not None:
-            job = self._load(job_id)
-            if job is None:
-                raise JobError(f"No job {job_id!r}.")
-            if not _under(Path(job.input_path), roots):
+            job = self._require_job(job_id)
+            if not self._within(job, roots):
                 raise JobError(
-                    f"Job {job_id!r} reads a file outside the folders allowed in this session."
+                    f"Job {job_id!r} reads or writes files outside the folders allowed in this "
+                    "session."
                 )
             return JobStatusList(jobs=[self._status(job)])
         jobs = [j for j in (self._load(i) for i in self._all_job_ids()) if j is not None]
-        visible = [j for j in jobs if _under(Path(j.input_path), roots)]
+        visible = [j for j in jobs if self._within(j, roots)]
         visible.sort(key=lambda j: j.created_utc)
         note = None if roots else "No allowed folders in this session, so no jobs are listed."
         return JobStatusList(jobs=[self._status(j) for j in visible], note=note)
@@ -619,13 +701,17 @@ class JobManager:
             )
         return target
 
-    def _check_output_free(self, job: Job) -> None:
+    def _check_output_free(self, job: Job, *, own_partial: bool = False) -> None:
+        """Refuse if any output path is taken. ``own_partial``: the partial is this job's."""
+        paths = [job.output, job.provenance] + ([] if own_partial else [job.partial])
+        for out in paths:
+            if out.exists() or out.is_symlink():
+                what = "is left over from another run" if out == job.partial else "already exists"
+                raise JobError(
+                    f"{out} {what} and map_file never overwrites. Pass a different "
+                    f"output_path, or move the existing file away first."
+                )
         out = job.output
-        if out.exists() or out.is_symlink():
-            raise JobError(
-                f"{out} already exists and map_file never overwrites. Pass a different "
-                f"output_path, or move the existing file away first."
-            )
         if not os.access(out.parent, os.W_OK):
             raise JobError(f"Output directory {out.parent} is not writable.")
 
@@ -687,9 +773,18 @@ class JobManager:
                 job = self._jobs[job_id]
                 job.state = "queued"
                 self._save(job)
-                self._enqueue(job, health=True)
+                self._enqueue(job, health=True, roots=roots)
                 return self._status(job)
             return status
+        if existing is not None and rerun:
+            if self._status(existing).state == "owned_elsewhere":
+                raise JobError(f"Job {job_id} is running in another session; cannot rerun it.")
+            if self._busy_job == job_id:
+                raise JobError(
+                    f"Job {job_id} is still running in this session, so its files cannot be "
+                    "replaced yet. cancel_job it, wait a few seconds for the current chunk to "
+                    "finish, then rerun."
+                )
 
         rows = await anyio.to_thread.run_sync(_read_rows, source, options)
         names = [r for r in rows if r.cache_key is not None]
@@ -709,9 +804,7 @@ class JobManager:
             seconds_per_entity=self.config.seconds_per_entity_seed,
             created_utc=_utc(self.config.wall_clock()),
         )
-        self._check_output_free(job)
-        if existing is not None and rerun and self._status(existing).state == "owned_elsewhere":
-            raise JobError(f"Job {job_id} is running in another session; cannot rerun it.")
+        self._check_output_free(job, own_partial=existing is not None and rerun)
         problem = await self._health_ok()
         if problem is not None:
             raise JobError(f"Not queued: {problem}")
@@ -720,6 +813,8 @@ class JobManager:
         _private_dir(self.config.home)
         _private_dir(self.jobs_dir)
         if existing is not None and rerun:
+            if self._busy_job == job_id:  # started while the health check awaited
+                raise JobError(f"Job {job_id} started running meanwhile; cancel it, then rerun.")
             self._forget(job_id)
             shutil.rmtree(jdir, ignore_errors=True)
             existing.partial.unlink(missing_ok=True)
@@ -728,7 +823,7 @@ class JobManager:
             raise JobError(f"Job {job_id} is owned by another session.")
         self._jobs[job_id] = job
         self._save(job)
-        self._enqueue(job, health=False)
+        self._enqueue(job, health=False, roots=roots)
         return self._status(job)
 
     def _forget(self, job_id: str) -> None:
@@ -740,11 +835,9 @@ class JobManager:
     async def resume(self, job_id: str, *, client_roots: list[Path]) -> JobStatus:
         roots = self._require_roots(client_roots)
         await self._note_roots(roots)
-        job = self._load(job_id)
-        if job is None:
-            raise JobError(f"No job {job_id!r}.")
-        if not _under(Path(job.input_path), roots):
-            raise JobError(f"Job {job_id!r} reads a file outside the allowed folders.")
+        job = self._require_job(job_id)
+        if not self._within(job, roots):
+            raise JobError(f"Job {job_id!r} reads or writes files outside the allowed folders.")
         status = self._status(job)
         if status.state == "owned_elsewhere":
             pid = status.owner.pid if status.owner else None
@@ -767,13 +860,18 @@ class JobManager:
             raise JobError(f"Not resumed: {problem}")
         job.state = "queued"
         self._save(job)
-        self._enqueue(job, health=False)
+        self._enqueue(job, health=False, roots=roots)
         return self._status(job)
 
-    async def cancel(self, job_id: str) -> JobStatus:
-        job = self._load(job_id)
-        if job is None:
-            raise JobError(f"No job {job_id!r}.")
+    async def cancel(self, job_id: str, *, client_roots: list[Path]) -> JobStatus:
+        roots = self.allowed_roots(client_roots)
+        await self._note_roots(roots)
+        job = self._require_job(job_id)
+        if not self._within(job, roots):
+            raise JobError(
+                f"Job {job_id!r} reads or writes files outside the folders allowed in this "
+                "session."
+            )
         if job.state in ("complete", "failed", "cancelled"):
             return self._status(job)
         if not self._take(job):
@@ -804,7 +902,7 @@ class JobManager:
             job = self._load_from_disk(job_id)
             if job is None or job.state not in UNFINISHED:
                 continue
-            if not _under(Path(job.input_path), roots):
+            if not self._within(job, roots):
                 continue
             if not self._take(job):
                 continue  # owned elsewhere; status reports it
@@ -820,7 +918,7 @@ class JobManager:
                 continue
             job.state = "queued"
             self._save(job)
-            self._enqueue(job, health=True)
+            self._enqueue(job, health=True, roots=roots)
 
     # -- worker --------------------------------------------------------
 
@@ -836,9 +934,11 @@ class JobManager:
                 await self._run(job)
             except _Stop:
                 pass
+            except JobError as exc:
+                self._fail_quietly(job, str(exc))
             except Exception as exc:  # noqa: BLE001 — a job failure must not kill the worker
                 logger.exception("job %s crashed", job_id)
-                self._finish(job, "failed", f"Internal error: {type(exc).__name__}: {exc}")
+                self._fail_quietly(job, f"Internal error: {type(exc).__name__}: {exc}")
             finally:
                 self._busy_job = None
 
@@ -850,11 +950,30 @@ class JobManager:
         self._save(job)
         raise _Stop
 
+    def _fail_quietly(self, job: Job, reason: str) -> None:
+        """Record a failure from the worker's own handler; nothing may escape the worker."""
+        try:
+            self._finish(job, "failed", reason)
+        except _Stop:
+            pass
+        except Exception:  # noqa: BLE001 — e.g. the job record could not be saved
+            logger.exception("could not record failure of job %s", job.job_id)
+
+    def _require_within_roots(self, job: Job) -> None:
+        roots = self._run_roots.get(job.job_id, [])
+        if not self._within(job, roots):
+            self._finish(
+                job, "failed",
+                "The job's input or output is no longer inside the folders allowed in this "
+                "session (a folder moved, or a path became a link elsewhere). Nothing was written.",
+            )
+
     def _stop_if_cancelled(self, job: Job) -> None:
         if job.state == "cancelled":
             raise _Stop
 
     async def _run(self, job: Job) -> None:
+        self._require_within_roots(job)
         source = Path(job.input_path)
         try:
             sha = await anyio.to_thread.run_sync(_sha256, source)
@@ -867,6 +986,14 @@ class JobManager:
                 "map_file again (the new content gets a new job).",
             )
         rows = await anyio.to_thread.run_sync(_read_rows, source, job.options)
+        if job.output.exists() or job.output.is_symlink() or job.provenance.exists() or (
+            job.provenance.is_symlink()
+        ):
+            self._finish(
+                job, "failed",
+                f"{job.output.name} or its provenance file now exists and map_file never "
+                "overwrites. Move it away, then submit map_file again with rerun=true.",
+            )
 
         if job.job_id in self._needs_health:
             self._needs_health.discard(job.job_id)
@@ -875,15 +1002,8 @@ class JobManager:
                 self._finish(job, "stalled", f"Health check before resuming failed: {problem}")
         self._stop_if_cancelled(job)
 
-        pins = await anyio.to_thread.run_sync(
-            lambda: collect_pins(
-                probe=True,
-                base_url=self.config.base_url,
-                api_key=self.config.api_key,
-                kestrel_url=self.config.kestrel_url,
-            ),
-            abandon_on_cancel=True,
-        )
+        pins = await probe_pins(self.config, self.gate)
+        self._stop_if_cancelled(job)
         new_pin = _cache_pin(pins, self.config.base_url, job.options)
         jdir = self._dir(job.job_id)
         note: str | None = None
@@ -909,6 +1029,8 @@ class JobManager:
                 "file is refused. Submit map_file again with rerun=true to start over on the "
                 "current build.",
             )
+        # A cancel accepted during the awaits above must not be overwritten by "running".
+        self._stop_if_cancelled(job)
         for name in ("entity_cache.jsonl", "checkpoint.json"):
             with contextlib.suppress(OSError):
                 os.chmod(jdir / name, 0o600)
@@ -924,6 +1046,7 @@ class JobManager:
 
         await self._map_passes(job, rows, cache)
         self._stop_if_cancelled(job)
+        self._require_within_roots(job)
         await anyio.to_thread.run_sync(self._write_final, job, rows, cache, pins)
         job.completed_utc = _utc(self.config.wall_clock())
         self._recount(job, rows, cache)
@@ -1030,10 +1153,10 @@ class JobManager:
     def _append_partial(
         self, job: Job, chunk: list[InputRow], results: list[MappingResult]
     ) -> None:
-        partial = job.partial
-        new = not partial.exists()
-        with partial.open("a", encoding="utf-8", newline="") as fh:
-            if new:
+        # O_NOFOLLOW: a partial swapped for a symlink is refused rather than followed.
+        fd = os.open(job.partial, os.O_WRONLY | os.O_APPEND | os.O_CREAT | _NOFOLLOW, 0o644)
+        with os.fdopen(fd, "a", encoding="utf-8", newline="") as fh:
+            if os.fstat(fh.fileno()).st_size == 0:
                 fh.write(_tsv_line(OUTPUT_COLUMNS))
             for row, res in zip(chunk, results, strict=True):
                 fh.write(_tsv_line(_output_row(row, res, None)))
@@ -1042,8 +1165,12 @@ class JobManager:
         self, job: Job, rows: list[InputRow], cache: EntityCache, pins: dict[str, Any]
     ) -> None:
         out = job.output
+        for taken in (out, job.provenance):
+            if taken.exists() or taken.is_symlink():
+                raise JobError(f"{taken} appeared while the job ran; not overwritten.")
         tmp = out.with_name(f".{out.name}.{job.job_id}.tmp")
-        with tmp.open("w", encoding="utf-8", newline="") as fh:
+        tmp.unlink(missing_ok=True)  # a stale temp (or a planted link) of this job only
+        with _create_exclusive(tmp) as fh:
             fh.write(_tsv_line(OUTPUT_COLUMNS))
             for row in rows:
                 if row.cache_key is None:
@@ -1058,7 +1185,6 @@ class JobManager:
             _place_without_overwrite(tmp, out)
         except FileExistsError:
             tmp.unlink(missing_ok=True)
-            job.state = "failed"
             raise JobError(f"{out} appeared while the job ran; not overwritten.") from None
         provenance = {
             "job_id": job.job_id,
@@ -1075,8 +1201,17 @@ class JobManager:
             "pins": pins,
         }
         prov_tmp = job.provenance.with_name(f".{job.provenance.name}.{job.job_id}.tmp")
-        prov_tmp.write_text(json.dumps(provenance, indent=2, sort_keys=True))
-        os.replace(prov_tmp, job.provenance)
+        prov_tmp.unlink(missing_ok=True)
+        with _create_exclusive(prov_tmp) as fh:
+            fh.write(json.dumps(provenance, indent=2, sort_keys=True))
+        try:
+            _place_without_overwrite(prov_tmp, job.provenance)
+        except FileExistsError:
+            prov_tmp.unlink(missing_ok=True)
+            raise JobError(
+                f"{job.provenance} appeared while the job ran; not overwritten. The mapped "
+                f"output {out.name} was written without its provenance file."
+            ) from None
         job.partial.unlink(missing_ok=True)
 
 

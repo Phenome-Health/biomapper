@@ -502,7 +502,7 @@ async def test_rerun_and_new_output_path_create_fresh_jobs(router, tmp_path, dat
         await wait_state(client, other["job_id"], "complete")
         calls_before = inflight.calls
         (data / "other.tsv").unlink()
-        (data / "other.biomapper.provenance.json").unlink(missing_ok=True)
+        (data / "other.provenance.json").unlink()
         rerun = await submit(client, src, output_path=str(data / "other.tsv"), rerun=True)
         await wait_state(client, rerun["job_id"], "complete")
     assert inflight.calls == calls_before + 1, "rerun must re-map instead of reusing the cache"
@@ -861,3 +861,169 @@ def test_job_lock_is_released_by_the_os_when_the_owner_process_dies(tmp_path) ->
     assert mine.acquire()
     assert mine.owner().pid == os.getpid()
     mine.release()
+
+
+# ---------------------------------------------------------------------------
+# Review round: worker survival, rerun/cancel races, path and ID hardening
+# ---------------------------------------------------------------------------
+
+
+async def test_an_output_appearing_mid_job_fails_only_that_job(router, tmp_path, data) -> None:
+    release = asyncio.Event()
+    started = asyncio.Event()
+    echo = batch_echo(InFlight())
+
+    async def held(request):
+        started.set()
+        await release.wait()
+        return await echo(request)
+
+    router.post(f"{API}/map/batch").mock(side_effect=held)
+    first = write_tsv(data / "p.tsv", ["a"])
+    second = write_tsv(data / "q.tsv", ["b"])
+    async with Client(build_server(cfg(tmp_path, data))) as client:
+        job = await submit(client, first)
+        await started.wait()
+        (data / "p.biomapper.tsv").write_text("someone else's file\n")
+        release.set()
+        s = await wait_state(client, job["job_id"], "failed")
+        assert "not overwritten" in s["reason"]
+        other = await submit(client, second)
+        await wait_state(client, other["job_id"], "complete")
+    assert (data / "p.biomapper.tsv").read_text() == "someone else's file\n"
+
+
+async def test_rerun_of_a_job_still_running_here_is_refused(router, tmp_path, data) -> None:
+    release = asyncio.Event()
+    started = asyncio.Event()
+    echo = batch_echo(InFlight())
+
+    async def held(request):
+        started.set()
+        await release.wait()
+        return await echo(request)
+
+    router.post(f"{API}/map/batch").mock(side_effect=held)
+    src = write_tsv(data / "p.tsv", ["a", "b"])
+    async with Client(build_server(cfg(tmp_path, data))) as client:
+        job = await submit(client, src)
+        await started.wait()
+        res = await client.call_tool("map_file", {"path": str(src), "name_column": "name",
+                                                  "entity_type": ST, "rerun": True})
+        assert res.is_error and "still running" in res.content[0].text
+        release.set()
+        await wait_state(client, job["job_id"], "complete")
+
+
+async def test_a_cancel_during_the_pin_fetch_is_not_lost(tmp_path, data) -> None:
+    inflight = InFlight()
+    with respx.mock(assert_all_called=False) as r:
+        healthy_routes(r)
+        kestrel_hits = {"n": 0}
+
+        def slow_kestrel(request):
+            kestrel_hits["n"] += 1
+            if kestrel_hits["n"] > 1:  # the job's pin fetch, not the startup probe
+                time.sleep(0.5)
+            return httpx.Response(200, json={"kestrel_version": "1.9", "kg_build": KG_BUILD})
+
+        r.get(f"{KESTREL}/health").mock(side_effect=slow_kestrel)
+        r.post(f"{API}/map/batch").mock(side_effect=batch_echo(inflight))
+        src = write_tsv(data / "p.tsv", ["a", "b"])
+        async with Client(build_server(cfg(tmp_path, data))) as client:
+            await asyncio.sleep(0.1)  # let the startup probe land
+            job = await submit(client, src)
+            while kestrel_hits["n"] < 2:
+                await asyncio.sleep(0.01)
+            payload(await client.call_tool("cancel_job", {"job_id": job["job_id"]}))
+            await asyncio.sleep(0.8)
+            s = await status(client, job["job_id"])
+    assert s["state"] == "cancelled"
+    assert inflight.calls == 0, "a cancelled job must not start mapping"
+
+
+async def test_resume_refuses_a_job_whose_output_left_the_roots(tmp_path, data) -> None:
+    with respx.mock(assert_all_called=False) as r:
+        healthy_routes(r)
+        r.post(f"{API}/map/batch").mock(return_value=httpx.Response(503))
+        out_dir = tmp_path / "outdir"
+        out_dir.mkdir()
+        src = write_tsv(data / "p.tsv", [f"m{i}" for i in range(6)])
+        config = cfg(tmp_path, data, env_roots=[data, out_dir])
+        async with Client(build_server(config)) as a:
+            job = await submit(a, src, output_path=str(out_dir / "o.tsv"))
+            await wait_state(a, job["job_id"], "stalled")
+        # Next session: only the input folder is allowed.
+        r.post(f"{API}/map/batch").mock(side_effect=batch_echo(InFlight()))
+        async with Client(build_server(cfg(tmp_path, data, env_roots=[data]))) as b:
+            res = await b.call_tool("resume_job", {"job_id": job["job_id"]})
+            assert res.is_error and "outside" in res.content[0].text
+            listing = payload(await b.call_tool("job_status", {}))
+            assert listing["jobs"] == []
+            res = await b.call_tool("cancel_job", {"job_id": job["job_id"]})
+            assert res.is_error and "outside" in res.content[0].text
+    assert not (out_dir / "o.tsv").exists()
+
+
+async def test_a_leftover_or_linked_partial_file_is_refused(router, tmp_path, data) -> None:
+    outside = tmp_path / "outside.txt"
+    outside.write_text("")
+    src = write_tsv(data / "p.tsv", ["a"])
+    (data / "p.biomapper.tsv.partial").symlink_to(outside)
+    async with Client(build_server(cfg(tmp_path, data))) as client:
+        res = await client.call_tool("map_file", {"path": str(src), "name_column": "name",
+                                                  "entity_type": ST})
+    assert res.is_error and "partial" in res.content[0].text
+    assert outside.read_text() == ""
+
+
+async def test_an_existing_provenance_file_is_refused(router, tmp_path, data) -> None:
+    src = write_tsv(data / "p.tsv", ["a"])
+    (data / "p.biomapper.provenance.json").write_text("{}")
+    async with Client(build_server(cfg(tmp_path, data))) as client:
+        res = await client.call_tool("map_file", {"path": str(src), "name_column": "name",
+                                                  "entity_type": ST})
+    assert res.is_error and "provenance" in res.content[0].text
+    assert (data / "p.biomapper.provenance.json").read_text() == "{}"
+
+
+async def test_cancel_job_without_allowed_folders_is_refused(router, tmp_path, data) -> None:
+    router.post(f"{API}/map/batch").mock(return_value=httpx.Response(503))
+    src = write_tsv(data / "p.tsv", [f"m{i}" for i in range(6)])
+    config = cfg(tmp_path, data)
+    async with Client(build_server(config)) as a:
+        job = await submit(a, src)
+        await wait_state(a, job["job_id"], "stalled")
+    async with Client(build_server(cfg(tmp_path, data, env_roots=[]))) as b:
+        res = await b.call_tool("cancel_job", {"job_id": job["job_id"]})
+    assert res.is_error and str(data) not in res.content[0].text
+
+
+@pytest.mark.parametrize("bad", ["../jobs/x", "/etc", "ABCDEF0123456789", "0123", "a" * 17])
+async def test_job_ids_that_are_not_generated_ids_are_refused(router, tmp_path, data, bad) -> None:
+    async with Client(build_server(cfg(tmp_path, data))) as client:
+        for tool in ("job_status", "resume_job", "cancel_job"):
+            res = await client.call_tool(tool, {"job_id": bad})
+            assert res.is_error and "not a job ID" in res.content[0].text, tool
+
+
+async def test_the_api_health_probe_waits_for_the_request_gate(tmp_path) -> None:
+    from biomapper.mcp.gate import RequestGate
+    from biomapper.mcp.jobs import probe_pins
+
+    # A host of its own: abandoned startup-probe threads from earlier tests hit API/KESTREL.
+    api = "https://gated-probe.test/api/v1"
+    with respx.mock(assert_all_called=False) as r:
+        healthy_routes(r)
+        api_route = r.get(f"{api}/health").mock(
+            return_value=httpx.Response(200, json={"status": "healthy", "version": "0.1.0"})
+        )
+        gate = RequestGate()
+        config = make_config(tmp_path, base_url=api)
+        async with gate.hold(wait_budget_s=None):
+            task = asyncio.create_task(probe_pins(config, gate))
+            await asyncio.sleep(0.2)
+            assert not api_route.called, "the API probe must not run while the gate is held"
+        pins = await asyncio.wait_for(task, 5)
+    assert api_route.call_count == 1
+    assert pins["api"]["status"] == "healthy"

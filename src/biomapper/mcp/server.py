@@ -20,20 +20,24 @@ from dataclasses import dataclass, field
 from typing import Annotated, Any, Literal, TypeVar
 
 import anyio
-import anyio.to_thread
 from mcp.server.mcpserver import Context, ListRoots, MCPServer, Resolve
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ListRootsResult
 from pydantic import BaseModel, Field
 
-from biomapper._pins import collect_pins
 from biomapper._version import resolve_version
 from biomapper.client import BioMapperClient
 from biomapper.exceptions import BioMapperError
 from biomapper.mcp import tools
 from biomapper.mcp.config import ServerConfig
 from biomapper.mcp.gate import GateBusy, LoopGuard, LoopGuardTripped, RequestGate
-from biomapper.mcp.jobs import JobManager, JobStatus, JobStatusList, roots_from_uris
+from biomapper.mcp.jobs import (
+    JobManager,
+    JobStatus,
+    JobStatusList,
+    probe_pins,
+    roots_from_uris,
+)
 
 logger = logging.getLogger("biomapper.mcp")
 
@@ -62,15 +66,9 @@ class AppState:
 
     async def load_pins(self) -> None:
         try:
-            self.pins = await anyio.to_thread.run_sync(
-                lambda: collect_pins(
-                    probe=True,
-                    base_url=self.config.base_url,
-                    api_key=self.config.api_key,
-                    kestrel_url=self.config.kestrel_url,
-                ),
-                abandon_on_cancel=True,
-            )
+            # The API probe waits for the shared gate like any request, so it never overlaps a
+            # mapping call. It runs as a background task, so initialize never waits on it.
+            self.pins = await probe_pins(self.config, self.gate)
         finally:
             self.pins_ready.set()
 
@@ -351,10 +349,12 @@ def _register_job_tools(server: MCPServer[AppState]) -> None:
             raise ToolError(str(exc)) from None
 
     @server.tool(description=JOB_TOOL_DESCRIPTIONS["cancel_job"])
-    async def cancel_job(job_id: str, ctx: Context[AppState, Any]) -> JobStatus:
+    async def cancel_job(
+        job_id: str, ctx: Context[AppState, Any], roots: ClientRoots
+    ) -> JobStatus:
         state = _state(ctx)
         try:
-            return await state.jobs.cancel(job_id)
+            return await state.jobs.cancel(job_id, client_roots=roots_from_uris(roots.roots))
         except JobError as exc:
             raise ToolError(str(exc)) from None
 

@@ -50,10 +50,15 @@ def collect_pins(
     base_url: str,
     api_key: str | None,
     kestrel_url: str = DEFAULT_KESTREL_URL,
+    api: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """The api/kestrel pin block. ``probe=False`` records "not probed" instead of calling out."""
+    """The api/kestrel pin block. ``probe=False`` records "not probed" instead of calling out.
+
+    ``api`` is an already-taken :func:`api_health` record, for callers that must run the API
+    probe under their own request gate; when given, the API is not probed again.
+    """
     if probe:
-        api = api_health(base_url, api_key)
+        api = api if api is not None else api_health(base_url, api_key)
         kestrel_version, kg_build, kestrel_error = fetch_kg_build_info(kestrel_url)
         kg: dict[str, Any] | None = kg_build.model_dump()
     else:
