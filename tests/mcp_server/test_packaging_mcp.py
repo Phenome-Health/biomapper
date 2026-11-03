@@ -109,3 +109,61 @@ def test_package_root_does_not_bind_the_mcp_subpackage() -> None:
     import biomapper
 
     assert "mcp" not in biomapper.__all__
+
+
+async def test_the_stdio_server_starts_and_lists_its_tools(tmp_path: Path) -> None:
+    """End to end over real stdio: the module entry point speaks MCP on stdout and nothing else.
+
+    The API and Kestrel URLs point at a closed local port, so the startup probe fails fast and
+    nothing leaves the machine.
+    """
+    import os
+
+    from mcp import Client, StdioServerParameters
+
+    env = {
+        **os.environ,
+        "BIOMAPPER_BASE_URL": "http://127.0.0.1:9/api/v1",
+        "BIOMAPPER_KESTREL_URL": "http://127.0.0.1:9/api",
+        "BIOMAPPER_MCP_HOME": str(tmp_path / "home"),
+    }
+    env.pop("BIOMAPPER_API_KEY", None)
+    params = StdioServerParameters(command=sys.executable, args=["-m", "biomapper.mcp"], env=env)
+    async with Client(params) as client:
+        names = {t.name for t in (await client.list_tools()).tools}
+    assert {"map_entity", "map_batch", "map_file", "job_status", "resume_job", "cancel_job",
+            "list_entity_types", "list_vocabularies", "list_annotators", "server_info"} <= names
+
+
+# ---------------------------------------------------------------------------
+# Unit 5: registry metadata and the README marker
+# ---------------------------------------------------------------------------
+
+SERVER_JSON = REPO_ROOT / "server.json"
+README = REPO_ROOT / "README.md"
+REGISTRY_NAME = "io.github.trentleslie/biomapper"
+
+
+def test_server_json_matches_pyproject() -> None:
+    meta = json.loads(SERVER_JSON.read_text())
+    version = _poetry()["version"]
+    assert meta["name"] == REGISTRY_NAME
+    assert meta["version"] == version
+    assert len(meta["description"]) <= 100
+    (package,) = meta["packages"]
+    assert package["registryType"] == "pypi"
+    assert package["identifier"] == _poetry()["name"]
+    assert package["version"] == version
+    assert package["transport"] == {"type": "stdio"}
+    assert package["runtimeHint"] == "uvx"
+    secrets = {v["name"] for v in package["environmentVariables"] if v["isSecret"]}
+    assert secrets == {"BIOMAPPER_API_KEY"}
+
+
+def test_readme_carries_the_registry_marker_exactly_once() -> None:
+    text = README.read_text()
+    hits = re.findall(r"mcp-name: (\S+)(\s|-->)", text)
+    assert len(hits) == 1, hits
+    token, after = hits[0]
+    assert token == REGISTRY_NAME, f"marker token {token!r} has trailing punctuation or a typo"
+    assert after.isspace() or after == "-->"
