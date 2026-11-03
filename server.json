@@ -1,0 +1,58 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.trentleslie/biomapper",
+  "title": "BioMapper",
+  "description": "Resolve metabolite, lipid, protein, gene and lab names to knowledge-graph IDs.",
+  "repository": {
+    "url": "https://github.com/Phenome-Health/biomapper",
+    "source": "github"
+  },
+  "websiteUrl": "https://github.com/Phenome-Health/biomapper#use-from-an-agent-mcp",
+  "version": "1.6.0",
+  "packages": [
+    {
+      "registryType": "pypi",
+      "registryBaseUrl": "https://pypi.org",
+      "identifier": "biomapper",
+      "version": "1.6.0",
+      "runtimeHint": "uvx",
+      "runtimeArguments": [
+        {
+          "type": "named",
+          "name": "--from",
+          "value": "biomapper[mcp]==1.6.0",
+          "description": "Install the mcp extra, which carries the MCP SDK"
+        }
+      ],
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "BIOMAPPER_MCP_ROOTS",
+          "description": "Folders map_file may read and write, path-separated (needed when the client shares no roots)",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "BIOMAPPER_API_KEY",
+          "description": "Optional API key; the hosted deployment is keyless",
+          "isRequired": false,
+          "isSecret": true
+        },
+        {
+          "name": "BIOMAPPER_BASE_URL",
+          "description": "Override the API root (staging or a local engine)",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "BIOMAPPER_MCP_HOME",
+          "description": "Where job state lives (default ~/.cache/biomapper/mcp)",
+          "isRequired": false,
+          "isSecret": false
+        }
+      ]
+    }
+  ]
+}
