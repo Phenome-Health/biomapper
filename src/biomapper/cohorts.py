@@ -43,10 +43,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
 
-import httpx
-
-from biomapper._provenance import DEFAULT_KESTREL_URL, fetch_kg_build_info
-from biomapper._version import resolve_version
+from biomapper._pins import api_health, collect_pins
+from biomapper._provenance import DEFAULT_KESTREL_URL
 from biomapper.client import DEFAULT_BASE_URL
 from biomapper.harmonize.curies import canonical_prefix, curie_set
 from biomapper.harmonize.linking import (
@@ -707,18 +705,7 @@ class CohortHarmonizationReport:
 
 
 def _api_health(base_url: str, api_key: str | None) -> dict[str, Any]:
-    key = api_key or os.getenv("BIOMAPPER_API_KEY")
-    headers = {"X-API-Key": key} if key else {}
-    try:
-        with httpx.Client(timeout=API_HEALTH_TIMEOUT_S, headers=headers) as client:
-            response = client.get(f"{base_url.rstrip('/')}/health")
-            response.raise_for_status()
-            data = response.json()
-        return {"status": data.get("status"), "self_reported_version": data.get("version"),
-                "error": None}
-    except Exception as exc:  # noqa: BLE001 — a pin must never abort a run
-        return {"status": "unreachable", "self_reported_version": None,
-                "error": f"{type(exc).__name__}: {exc}"}
+    return api_health(base_url, api_key, timeout=API_HEALTH_TIMEOUT_S)
 
 
 def _collect_pins(
@@ -729,33 +716,10 @@ def _collect_pins(
     kestrel_url: str,
     mapper: Mapper,
 ) -> dict[str, Any]:
-    if probe:
-        api = _api_health(base_url, api_key)
-        kestrel_version, kg_build, kestrel_error = fetch_kg_build_info(kestrel_url)
-        kg: dict[str, Any] | None = kg_build.model_dump()
-    else:
-        api = {"status": "not probed", "self_reported_version": None, "error": None}
-        kestrel_version, kg, kestrel_error = "not probed", None, None
+    # The api/kestrel block is shared with the MCP server (``biomapper._pins``); only the mapper
+    # keys are cohort-specific.
     return {
-        "timestamp_utc": dt.datetime.now(dt.UTC).isoformat(),
-        "biomapper_version": resolve_version(),
-        "api": {
-            "base_url": base_url,
-            **api,
-            "self_reported_version_label": "self-reported, known stale",
-            # The API does not expose the engine release it runs.
-            "engine_release": "unavailable",
-        },
-        "kestrel": {
-            "url": kestrel_url,
-            "kestrel_version": kestrel_version,
-            "kg_build": kg,
-            "error": kestrel_error,
-            "label": (
-                "Kestrel's own /health; the graph the API used is assumed, not verified, to be "
-                "this build"
-            ),
-        },
+        **collect_pins(probe=probe, base_url=base_url, api_key=api_key, kestrel_url=kestrel_url),
         "mapper": type(mapper).__name__,
         "mapper_pins": getattr(mapper, "pins", None),
     }
