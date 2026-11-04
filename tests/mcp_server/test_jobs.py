@@ -122,6 +122,9 @@ async def test_a_12_row_file_completes_in_3_chunks_in_input_order(router, tmp_pa
         "confidence_score", "confidence_tier", "refusal_reason", "kg_equivalent_ids", "error",
     ]
     assert all(r["status"] == "resolved" for r in out)
+    # Scored rows keep the client's tier in the file output (not_scored is unit-tested in
+    # test_server_tools: only resolved rows WITHOUT a score change).
+    assert {r["confidence_tier"] for r in out} == {"high"}
     assert not (data / "panel.biomapper.tsv.partial").exists()
     prov = json.loads((data / "panel.biomapper.provenance.json").read_text())
     assert prov["pins"]["kestrel"]["kg_build"]["kg_version"] == KG_BUILD["kg_version"]
