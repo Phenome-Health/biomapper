@@ -81,7 +81,13 @@ class EntityResult(BaseModel):
     primary_curie: str | None = None
     chosen_kg_id: str | None = None
     confidence_score: float | None = None
-    confidence_tier: str = "unknown"
+    confidence_tier: str = Field(
+        default="unknown",
+        description="high/medium/low from the annotator score. not_scored = resolved, but no "
+        "annotator ran (typically because identifiers were supplied), so there is no score; "
+        "this is not a sign of a weak match, so check certificate_state instead. unknown = "
+        "not resolved.",
+    )
     certificate_state: str | None = Field(
         default=None,
         description="corroborated/uncorroborated/contradicted/...; uncorroborated deserves a "
@@ -171,6 +177,22 @@ def error_text(result: MappingResult) -> str:
     return "Unknown error (the request failed with an empty message)."
 
 
+NOT_SCORED = "not_scored"
+
+
+def mcp_confidence_tier(result: MappingResult, status: EntityStatus) -> str:
+    """The client's tier, except a resolved row without a score reads ``not_scored``.
+
+    The engine scores only annotator matches. With identifiers supplied (annotation_mode
+    ``missing``) no annotator runs, so a correct, ID-anchored resolution has no score. The
+    client reports that as ``unknown``, which agents in the 2026-11-04 live trials read as
+    "low quality" and flagged on every row.
+    """
+    if status == "resolved" and result.confidence_score is None:
+        return NOT_SCORED
+    return result.confidence_tier
+
+
 def shape_result(result: MappingResult) -> EntityResult:
     status = entity_status(result)
     reason: str | None = None
@@ -187,7 +209,7 @@ def shape_result(result: MappingResult) -> EntityResult:
         primary_curie=None if status == "error" else result.primary_curie,
         chosen_kg_id=None if status == "error" else result.chosen_kg_id,
         confidence_score=result.confidence_score,
-        confidence_tier=result.confidence_tier,
+        confidence_tier=mcp_confidence_tier(result, status),
         certificate_state=certificate,
         refusal_reason=result.refusal_reason,
         reason=reason,

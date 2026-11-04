@@ -122,6 +122,9 @@ async def test_a_12_row_file_completes_in_3_chunks_in_input_order(router, tmp_pa
         "confidence_score", "confidence_tier", "refusal_reason", "kg_equivalent_ids", "error",
     ]
     assert all(r["status"] == "resolved" for r in out)
+    # Scored rows keep the client's tier in the file output (not_scored is unit-tested in
+    # test_server_tools: only resolved rows WITHOUT a score change).
+    assert {r["confidence_tier"] for r in out} == {"high"}
     assert not (data / "panel.biomapper.tsv.partial").exists()
     prov = json.loads((data / "panel.biomapper.provenance.json").read_text())
     assert prov["pins"]["kestrel"]["kg_build"]["kg_version"] == KG_BUILD["kg_version"]
@@ -130,6 +133,27 @@ async def test_a_12_row_file_completes_in_3_chunks_in_input_order(router, tmp_pa
     assert done["kg_verified"] is True
     assert done["entities_done"] == 12
 
+
+async def test_unscored_resolved_rows_read_not_scored_in_the_output_tsv(
+    router, tmp_path, data
+) -> None:
+    """ID-anchored rows: resolved, no annotator score. The TSV must say not_scored, not the
+    client's 'unknown' (2026-11-04 live trials: agents read 'unknown' as a weak match)."""
+
+    async def unscored(request: httpx.Request) -> httpx.Response:
+        names = [e["name"] for e in json.loads(request.content)["entities"]]
+        entries = [{**resolved_entry(n), "assigned_ids": {}} for n in names]
+        return httpx.Response(200, json=batch_response(entries))
+
+    router.post(f"{API}/map/batch").mock(side_effect=unscored)
+    src = write_tsv(data / "ids.tsv", ["glucose", "lactate", "citrate"])
+    async with Client(build_server(cfg(tmp_path, data))) as client:
+        job = await submit(client, src)
+        await wait_state(client, job["job_id"], "complete")
+    out = read_tsv(data / "ids.biomapper.tsv")
+    assert [r["status"] for r in out] == ["resolved"] * 3
+    assert [r["confidence_score"] for r in out] == [""] * 3
+    assert [r["confidence_tier"] for r in out] == ["not_scored"] * 3
 
 async def test_map_file_returns_fast_while_the_worker_keeps_running(
     router, tmp_path, data

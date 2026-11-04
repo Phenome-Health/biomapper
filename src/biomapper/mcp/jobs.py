@@ -428,7 +428,7 @@ def _output_row(row: InputRow, result: MappingResult | None, error: str | None) 
         result.primary_curie or "",
         shaped.status == "resolved",
         "" if result.confidence_score is None else result.confidence_score,
-        result.confidence_tier,
+        shaped.confidence_tier,
         result.refusal_reason or "",
         json.dumps(result.kg_equivalent_ids, sort_keys=True) if result.kg_equivalent_ids else "",
         shaped.error or "",
