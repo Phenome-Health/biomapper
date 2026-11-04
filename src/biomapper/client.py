@@ -360,6 +360,7 @@ class BioMapperClient:
         prefer_canonical: bool | None = None,
         candidate_limit: int | None = None,
         kestrel_top_n: int | None = None,
+        sleep_on_rate_limit: bool = True,
     ) -> list[MappingResult]:
         """Map a batch of entity records via the native ``/map/batch`` endpoint.
 
@@ -377,6 +378,10 @@ class BioMapperClient:
             progress:          Show a tqdm progress bar (requires ``biomapper[notebook]``).
                                The bar totals ``len(records)`` and advances by the
                                chunk size after each chunk completes.
+            sleep_on_rate_limit: Sleep for the server's ``Retry-After`` after a 429 chunk
+                               (default ``True``). Pass ``False`` when the caller holds a lock
+                               across this call and backs off itself after releasing it, as the
+                               MCP server's request gate does.
 
         Returns:
             List of :class:`~biomapper.models.MappingResult`, one per input record,
@@ -493,7 +498,11 @@ class BioMapperClient:
                                 error=str(exc),
                             )
                         )
-                    if isinstance(exc, BioMapperRateLimitError) and exc.retry_after:
+                    if (
+                        sleep_on_rate_limit
+                        and isinstance(exc, BioMapperRateLimitError)
+                        and exc.retry_after
+                    ):
                         # Courtesy: honor server's Retry-After between chunks.
                         await asyncio.sleep(exc.retry_after)
                 finally:

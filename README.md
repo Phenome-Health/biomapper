@@ -23,7 +23,12 @@ pip install biomapper
 
 # With the external benchmark suite
 pip install 'biomapper[benchmarks]'
+
+# With the MCP server for agents (Claude Code, Claude Desktop, other MCP clients)
+pip install 'biomapper[mcp]'
 ```
+
+**Use 1.6.0 or later for the MCP server** (see [Use from an agent (MCP)](#use-from-an-agent-mcp)).
 
 **Use 1.5.6 or later for `harmonize_cohorts()` and ambiguous-link flags** (see [Harmonization](#harmonization-cross-dataset-equivalence)).
 
@@ -454,6 +459,104 @@ not an exception. Pass `mapper=` (any `(records, *, entity_type, annotation_mode
 list[MappingResult]` callable) to replay recorded results offline; the tests replay the UK Biobank
 x Arivale labs this way (`tests/fixtures/cohorts_labs_cm/`, KRAKEN kg 2.3.0 / 3dd08a5b: 37 pairs,
 21 one-to-one by name).
+
+---
+
+## Use from an agent (MCP)
+
+<!-- mcp-name: io.github.trentleslie/biomapper -->
+
+`biomapper[mcp]` ships a local stdio [MCP](https://modelcontextprotocol.io) server,
+`biomapper-mcp`, so an agent can resolve entities through the same public, keyless API as the
+Python client. It runs on your machine; nothing is hosted. Launch it with one command (needs
+[`uv`](https://docs.astral.sh/uv/)):
+
+```bash
+uvx --from 'biomapper[mcp]' biomapper-mcp
+```
+
+**Claude Code** (the server sees your project folder through MCP roots):
+
+```bash
+claude mcp add --scope user biomapper -- uvx --from 'biomapper[mcp]' biomapper-mcp
+```
+
+**Claude Desktop** (`claude_desktop_config.json`). Desktop does not inherit your shell `PATH`, so
+use the absolute path that `which uvx` prints, and list the folders `map_file` may use, because
+Desktop shares no project roots:
+
+```json
+{
+  "mcpServers": {
+    "biomapper": {
+      "command": "/absolute/path/to/uvx",
+      "args": ["--from", "biomapper[mcp]", "biomapper-mcp"],
+      "env": { "BIOMAPPER_MCP_ROOTS": "/Users/you/data" }
+    }
+  }
+}
+```
+
+### Tools
+
+| tool | what it does |
+|---|---|
+| `list_entity_types`, `list_vocabularies`, `list_annotators` | discovery; call `list_entity_types` first to pick `entity_type` |
+| `map_entity` | one name (plus optional identifier hints) to KG identifiers |
+| `map_batch` | up to **5** entities in one request; more is refused and pointed to `map_file` |
+| `map_file` | a TSV/CSV of any length as a resumable **background job**; returns a `job_id` and an ETA at once |
+| `job_status`, `resume_job`, `cancel_job` | follow, continue, or stop a file job |
+| `server_info` | version, KG provenance, limits, and the folders `map_file` may use |
+
+Every result says `resolved`, `unresolved`, `refused`, or `error`. An `error` is a failed call,
+never a confirmed no-match. Results carry a compact provenance block (client version, API URL,
+KG build per Kestrel `/health`, labeled *assumed, not verified*, and `kg_verified`).
+
+### Throughput, and why the limits exist
+
+The hosted deployment is one shared instance that answers about **4-5 s per entity** and slows
+sharply under concurrent load, so the server is deliberately polite:
+
+- **One request in flight per server process.** Interactive calls and file-job chunks share one
+  gate; a call that cannot get it within ~10 s returns "busy, retry shortly".
+- **Every tool call returns in under 60 s** (Claude Desktop cancels at ~60 s), which is why
+  `map_batch` stops at 5 and long work runs as a job.
+- **Loop guard:** more than 20 `map_entity`/`map_batch` calls in 5 minutes are refused with a
+  pointer to `map_file`. Discovery and status tools do not count.
+
+### File jobs
+
+`map_file(path, name_column, entity_type, identifier_columns?, output_path?)` validates the file
+(readable, columns present, rows counted, output not already there, `/health` answering) and
+queues it. `identifier_columns` maps a column to its vocabulary, e.g. `{"hmdb_id": "HMDB"}`.
+
+- **Output:** `<input>.biomapper.tsv` next to the input plus `<input>.biomapper.provenance.json`
+  (full pins: API, Kestrel, KG build). It never overwrites a file. Progress is written to
+  `<output>.partial` until the job completes.
+- **Resumable:** rows are mapped in chunks of 5 and cached as they land. If the agent session
+  ends, the job is `paused`; the next session in the same folder resumes it automatically, without
+  re-mapping cached rows. Jobs idle for more than 7 days become `expired` and resume only through
+  `resume_job`.
+- **Honest failure:** three whole-chunk failures in a row, or one chunk slower than 240 s, move the
+  job to `stalled` and it stops sending requests; `resume_job` retries after a health check. A
+  row that errors three times is written as `error`. A changed input file, or a KG build that
+  differs from the cached rows, fails the job; `rerun=true` starts over.
+- **Folders:** `map_file` only reads and writes inside the client's MCP roots plus
+  `BIOMAPPER_MCP_ROOTS`, with symlinks resolved. With neither, it refuses and says how to set
+  them; the interactive tools still work.
+
+### Environment
+
+| variable | default | purpose |
+|---|---|---|
+| `BIOMAPPER_BASE_URL` | the hosted API | API root, e.g. a staging or local engine |
+| `BIOMAPPER_KESTREL_URL` | `https://kestrel.krakenkg.com/api` | where the KG build is read for provenance |
+| `BIOMAPPER_API_KEY` | unset (keyless) | sent as `X-API-Key` when set; never written to job files, results, or logs |
+| `BIOMAPPER_MCP_ROOTS` | unset | extra folders `map_file` may use (`:`-separated; `;` on Windows) |
+| `BIOMAPPER_MCP_HOME` | `~/.cache/biomapper/mcp` | job state (owner-only permissions) |
+
+On HPC or shared hosts whose home directory is on NFS/SMB, set `BIOMAPPER_MCP_HOME` to local disk:
+job ownership uses OS file locks, which network filesystems may not honor across machines.
 
 ---
 
