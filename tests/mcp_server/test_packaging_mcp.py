@@ -1,8 +1,10 @@
-"""Unit 2 (and 5): the MCP server ships as an optional extra plus a console script.
+"""Unit 2 (and 5): the MCP server ships in the core install with a ``biomapper`` console script.
 
-``uvx --from 'biomapper[mcp]' biomapper-mcp`` is the launch line, so the wheel must gate the SDK on
-the ``mcp`` extra and declare the console script; a core install must never import the SDK; and
-running the script without the extra must fail with an install hint rather than a traceback.
+Since 1.6.2 the launch line is ``uvx biomapper``: MCP registry clients run ``uvx <package>`` and
+have no documented way to install an extra, so the SDK is a base dependency and the console script
+is named after the package. ``biomapper-mcp`` stays as an alias for 1.6.0/1.6.1 configs.
+``import biomapper`` must still never import the SDK, and a broken install (SDK missing) must fail
+with an install hint rather than a traceback.
 """
 
 from __future__ import annotations
@@ -26,17 +28,21 @@ def _poetry() -> dict:
     return tomllib.loads(PYPROJECT.read_text())["tool"]["poetry"]
 
 
-def test_mcp_is_an_optional_main_dependency_on_the_2x_sdk() -> None:
+def test_mcp_is_a_base_dependency_on_the_2x_sdk() -> None:
     spec = _poetry()["dependencies"]["mcp"]
-    assert isinstance(spec, dict) and spec["optional"] is True
-    assert spec["version"].startswith(">=2.3")
-    assert "<3" in spec["version"]
+    version = spec if isinstance(spec, str) else spec["version"]
+    assert not (isinstance(spec, dict) and spec.get("optional")), "uvx biomapper needs it in core"
+    assert version.startswith(">=2.3")
+    assert "<3" in version
 
 
-def test_mcp_extra_and_console_script_are_declared() -> None:
+def test_no_mcp_extra_and_both_console_scripts_are_declared() -> None:
     poetry = _poetry()
-    assert poetry["extras"]["mcp"] == ["mcp"]
-    assert "mcp" in poetry["extras"]["all"]
+    # An extra naming a non-optional dependency would advertise an empty extra; uv and pip only
+    # warn on an unknown extra, so 1.6.0-era `biomapper[mcp]` configs keep installing.
+    assert "mcp" not in poetry["extras"]
+    assert "mcp" not in poetry["extras"]["all"]
+    assert poetry["scripts"]["biomapper"] == "biomapper.mcp:main"
     assert poetry["scripts"]["biomapper-mcp"] == "biomapper.mcp:main"
 
 
@@ -63,17 +69,18 @@ def _wheel_file(wheel: Path, suffix: str) -> str:
         return zf.read(name).decode()
 
 
-def test_built_wheel_gates_mcp_on_the_extra(built_wheel: Path) -> None:
+def test_built_wheel_requires_mcp_unconditionally(built_wheel: Path) -> None:
     metadata = _wheel_file(built_wheel, ".dist-info/METADATA")
-    assert re.search(r"^Provides-Extra: mcp$", metadata, re.MULTILINE)
+    assert not re.search(r"^Provides-Extra: mcp$", metadata, re.MULTILINE)
     lines = re.findall(r"^Requires-Dist: (mcp\b.*)$", metadata, re.MULTILINE)
-    assert lines, "the wheel does not require mcp under any extra"
-    assert all('extra == "mcp"' in line or 'extra == "all"' in line for line in lines)
+    assert len(lines) == 1, lines
+    assert "extra ==" not in lines[0], "mcp must not be gated on an extra"
 
 
-def test_built_wheel_declares_the_console_script(built_wheel: Path) -> None:
+def test_built_wheel_declares_both_console_scripts(built_wheel: Path) -> None:
     entry_points = _wheel_file(built_wheel, ".dist-info/entry_points.txt")
-    assert re.search(r"^biomapper-mcp\s*=\s*biomapper\.mcp:main$", entry_points, re.MULTILINE)
+    for script in ("biomapper", "biomapper-mcp"):
+        assert re.search(rf"^{script}\s*=\s*biomapper\.mcp:main$", entry_points, re.MULTILINE)
 
 
 def test_main_without_the_sdk_exits_with_an_install_hint() -> None:
@@ -85,7 +92,7 @@ def test_main_without_the_sdk_exits_with_an_install_hint() -> None:
     )
     proc = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
     assert proc.returncode == 1
-    assert "pip install 'biomapper[mcp]'" in proc.stderr
+    assert "uvx biomapper" in proc.stderr
     assert "Traceback" not in proc.stderr
     assert proc.stdout == "", "stdout is the MCP transport; nothing else may write to it"
 
@@ -156,6 +163,10 @@ def test_server_json_matches_pyproject() -> None:
     assert package["version"] == version
     assert package["transport"] == {"type": "stdio"}
     assert package["runtimeHint"] == "uvx"
+    # Clients build the launch line from identifier + version; anything in runtimeArguments is
+    # unverified client behaviour, and 1.6.1 shipped a stale `==1.6.0` pin in there unnoticed.
+    assert "runtimeArguments" not in package
+    assert "==" not in json.dumps(package), "no hand-written version pins outside `version`"
     secrets = {v["name"] for v in package["environmentVariables"] if v["isSecret"]}
     assert secrets == {"BIOMAPPER_API_KEY"}
 

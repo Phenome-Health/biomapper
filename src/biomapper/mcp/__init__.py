@@ -1,12 +1,12 @@
-"""Local stdio MCP server for BioMapper entity resolution (``biomapper-mcp``).
+"""Local stdio MCP server for BioMapper entity resolution (``biomapper``, alias ``biomapper-mcp``).
 
-Install with the ``mcp`` extra and launch with one command::
+The MCP SDK is a base dependency (since 1.6.2), so one command launches it::
 
-    uvx --from 'biomapper[mcp]' biomapper-mcp
+    uvx biomapper
 
-This package is an import gate: it never imports the MCP SDK itself, so ``import biomapper.mcp`` is
-safe on a core install, and :func:`main` turns a missing extra into an install hint instead of a
-traceback. The server lives in :mod:`biomapper.mcp.server`, which imports the SDK at module level.
+This package still never imports the SDK itself, so ``import biomapper`` stays light, and
+:func:`main` turns a broken install (SDK missing) into an install hint instead of a traceback.
+The server lives in :mod:`biomapper.mcp.server`, which imports the SDK at module level.
 
 stdout is the MCP transport. Nothing in this package writes to it; logs go to stderr.
 """
@@ -16,9 +16,9 @@ from __future__ import annotations
 import sys
 
 INSTALL_HINT = (
-    "biomapper-mcp needs the MCP SDK, which ships in the 'mcp' extra.\n"
-    "Install it with:  pip install 'biomapper[mcp]'\n"
-    "or launch with:   uvx --from 'biomapper[mcp]' biomapper-mcp\n"
+    "The BioMapper MCP server needs the MCP SDK (`mcp`), which this install is missing.\n"
+    "Reinstall with:  pip install --upgrade 'biomapper>=1.6.2'\n"
+    "or launch with:  uvx biomapper\n"
 )
 
 
