@@ -91,7 +91,7 @@ The agent then read the output TSV and provenance file with a short script (resu
 > to `CHEBI:78320`, which may be a single enantiomer rather than generic lactate.
 
 In this session every row read `confidence_tier = unknown`. The identifiers were supplied, so
-no annotator ran and the engine produced no score. From the release after 1.6.0 the server
+no annotator ran and the engine produced no score. From 1.6.1 the server
 reports these rows as `not_scored`, so agents do not mistake them for weak matches.
 
 ## Live trial results (Claude Code, 2026-11-04)
