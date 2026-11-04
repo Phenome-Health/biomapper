@@ -23,12 +23,13 @@ pip install biomapper
 
 # With the external benchmark suite
 pip install 'biomapper[benchmarks]'
-
-# With the MCP server for agents (Claude Code, Claude Desktop, other MCP clients)
-pip install 'biomapper[mcp]'
 ```
 
-**Use 1.6.0 or later for the MCP server** (see [Use from an agent (MCP)](#use-from-an-agent-mcp)).
+The core install includes the MCP server for agents (Claude Code, Claude Desktop, other MCP
+clients); launch it with `uvx biomapper` (see [Use from an agent (MCP)](#use-from-an-agent-mcp)).
+
+**Use 1.6.2 or later for `uvx biomapper`.** 1.6.0 and 1.6.1 shipped the server behind an `mcp`
+extra (`uvx --from 'biomapper[mcp]' biomapper-mcp`); that line still works on 1.6.2.
 
 **Use 1.5.6 or later for `harmonize_cohorts()` and ambiguous-link flags** (see [Harmonization](#harmonization-cross-dataset-equivalence)).
 
@@ -466,19 +467,19 @@ x Arivale labs this way (`tests/fixtures/cohorts_labs_cm/`, KRAKEN kg 2.3.0 / 3d
 
 <!-- mcp-name: io.github.trentleslie/biomapper -->
 
-`biomapper[mcp]` ships a local stdio [MCP](https://modelcontextprotocol.io) server,
-`biomapper-mcp`, so an agent can resolve entities through the same public, keyless API as the
+`biomapper` ships a local stdio [MCP](https://modelcontextprotocol.io) server (the `biomapper`
+command, alias `biomapper-mcp`), so an agent can resolve entities through the same public, keyless API as the
 Python client. It runs on your machine; nothing is hosted. Launch it with one command (needs
 [`uv`](https://docs.astral.sh/uv/)):
 
 ```bash
-uvx --from 'biomapper[mcp]' biomapper-mcp
+uvx biomapper
 ```
 
 **Claude Code** (the server sees your project folder through MCP roots):
 
 ```bash
-claude mcp add --scope user biomapper -- uvx --from 'biomapper[mcp]' biomapper-mcp
+claude mcp add --scope user biomapper -- uvx biomapper
 ```
 
 **Claude Desktop** (`claude_desktop_config.json`). Desktop does not inherit your shell `PATH`, so
@@ -490,7 +491,7 @@ Desktop shares no project roots:
   "mcpServers": {
     "biomapper": {
       "command": "/absolute/path/to/uvx",
-      "args": ["--from", "biomapper[mcp]", "biomapper-mcp"],
+      "args": ["biomapper"],
       "env": { "BIOMAPPER_MCP_ROOTS": "/Users/you/data" }
     }
   }
