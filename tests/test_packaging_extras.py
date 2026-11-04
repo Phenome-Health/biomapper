@@ -176,4 +176,7 @@ def test_core_install_stays_light() -> None:
         "httpx",
         "pydantic",
         "python-dotenv",
+        # Deliberate, 1.6.2 (Trent, 2026-11-04): MCP registry clients launch `uvx biomapper` and
+        # cannot install an extra, so the SDK must be in core. See CHANGELOG 1.6.2.
+        "mcp",
     }, f"core dependency set changed to {sorted(mandatory)}; heavy packages must stay optional"

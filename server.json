@@ -8,22 +8,14 @@
     "source": "github"
   },
   "websiteUrl": "https://github.com/Phenome-Health/biomapper#use-from-an-agent-mcp",
-  "version": "1.6.0",
+  "version": "1.6.2",
   "packages": [
     {
       "registryType": "pypi",
       "registryBaseUrl": "https://pypi.org",
       "identifier": "biomapper",
-      "version": "1.6.0",
+      "version": "1.6.2",
       "runtimeHint": "uvx",
-      "runtimeArguments": [
-        {
-          "type": "named",
-          "name": "--from",
-          "value": "biomapper[mcp]==1.6.0",
-          "description": "Install the mcp extra, which carries the MCP SDK"
-        }
-      ],
       "transport": {
         "type": "stdio"
       },

@@ -5,6 +5,26 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.6.2] - 2026-11-04
+
+### Changed
+
+- **The MCP server is in the core install and launches with `uvx biomapper`.** The MCP SDK
+  (`mcp>=2.3,<3`) is now a base dependency, and a new `biomapper` console script runs the server.
+  MCP registry clients launch `uvx <package>==<version>`, and the registry gives no documented way to
+  make them install an extra. Under 1.6.1 a registry install would have found neither the SDK nor a
+  `biomapper` executable. The `mcp` extra is gone; uv and pip only warn on an unknown extra, so
+  `uvx --from 'biomapper[mcp]' biomapper-mcp` configs keep working, and `biomapper-mcp` stays as an
+  alias. Cost: every install now pulls in the SDK tree (starlette, uvicorn, httpx2, opentelemetry)
+  and its `pydantic>=2.12` floor. `import biomapper` still does not import the SDK.
+
+### Fixed
+
+- `server.json` no longer carries a `runtimeArguments` `--from` pin. 1.6.1's still said
+  `biomapper[mcp]==1.6.0`, and the test checked only the `version` fields.
+
+## [1.6.1] - 2026-11-04
+
 ### Changed
 
 - **MCP: resolved rows without an annotator score now report `confidence_tier: not_scored`,
