@@ -5,6 +5,31 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.6.0] - unreleased
+
+### Added
+
+- **MCP server for agents** (`pip install 'biomapper[mcp]'`, launch with
+  `uvx --from 'biomapper[mcp]' biomapper-mcp`). A local stdio server on the MCP Python SDK 2.x
+  exposing discovery (`list_entity_types`, `list_vocabularies`, `list_annotators`), `map_entity`,
+  `map_batch` (at most 5 entities), `server_info`, and resumable background file jobs
+  (`map_file`, `job_status`, `resume_job`, `cancel_job`). It protects the shared deployment: one
+  request in flight per process, a 10 s gate wait and 50 s deadline so every call returns inside
+  Claude Desktop's ~60 s limit, and a loop guard (20 interactive mapping calls per 5 minutes).
+  File jobs map in chunks of 5 with an fsynced cache, survive the session ending (paused, then
+  auto-resumed by the next session in the same folder), stall instead of hammering a failing
+  prod, refuse to overwrite outputs, only touch files inside MCP roots or `BIOMAPPER_MCP_ROOTS`,
+  and write a provenance JSON with the KG build labeled as assumed, not verified.
+- `BioMapperClient.map_entities(..., sleep_on_rate_limit=True)`: pass `False` to skip the
+  in-call `Retry-After` sleep when the caller backs off itself. The default is unchanged.
+
+### Changed
+
+- `EntityCache`, `cache_key` and `CachePinMismatch` moved to the pandas-free
+  `biomapper._checkpoint`; `biomapper.benchmarks.checkpoint` re-exports them unchanged (same cache
+  file names and pin fields). The api/kestrel pin block of `harmonize_cohorts()` moved to
+  `biomapper._pins`; its output is unchanged.
+
 ## [1.5.6] - 2026-10-31
 
 ### Added
