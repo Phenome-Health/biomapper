@@ -5,7 +5,20 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-## [1.6.0] - unreleased
+### Changed
+
+- **MCP: resolved rows without an annotator score now report `confidence_tier: not_scored`,
+  not `unknown`.** The engine scores only annotator matches, so a row resolved from supplied
+  identifiers (`annotation_mode="missing"`) has no score. In the 2026-11-04 live trials, agents
+  read `unknown` as a weak match on all 30 rows of an ID-anchored file. Applies to tool results
+  and `map_file` output TSVs; the client's own `MappingResult.confidence_tier` is unchanged.
+
+### Documentation
+
+- `docs/mcp-worked-example.md`: a real Claude Code session mapping a 30-row file, plus the
+  live-trial results (routing 6/6, loop guard at call 21, cross-session resume).
+
+## [1.6.0] - 2026-11-04
 
 ### Added
 
