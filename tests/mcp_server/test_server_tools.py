@@ -438,3 +438,29 @@ async def test_api_key_is_sent_as_header_but_never_returned(tmp_path) -> None:
     assert route.calls.last.request.headers["X-API-Key"] == "s3cret-key"
     assert "s3cret-key" not in res.content[0].text
     assert "s3cret-key" not in info.content[0].text
+
+
+# --- confidence tier: resolved without an annotator score reads not_scored ----------------
+
+
+def test_resolved_without_score_is_not_scored_not_unknown() -> None:
+    """2026-11-04 live trials: ID-anchored rows came back tier 'unknown' and agents read that
+    as a weak match. No annotator ran, so there is no score, not a bad one."""
+    from biomapper.mcp.tools import NOT_SCORED, shape_result
+    from biomapper.models import MappingResult
+
+    result = MappingResult(query_name="glucose", resolved=True, primary_curie="RM:0135901",
+                           chosen_kg_id="CHEBI:17234", confidence_score=None)
+    assert result.confidence_tier == "unknown"  # client semantics unchanged
+    assert shape_result(result).confidence_tier == NOT_SCORED
+
+
+def test_scored_and_unresolved_tiers_pass_through() -> None:
+    from biomapper.mcp.tools import shape_result
+    from biomapper.models import MappingResult
+
+    scored = MappingResult(query_name="x", resolved=True, primary_curie="RM:1",
+                           chosen_kg_id="CHEBI:1", confidence_score=2.5)
+    assert shape_result(scored).confidence_tier == "high"
+    unresolved = MappingResult(query_name="y", resolved=False, confidence_score=None)
+    assert shape_result(unresolved).confidence_tier == "unknown"
