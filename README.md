@@ -360,6 +360,25 @@ entities landed on one entry, so the pair is a review candidate rather than a co
 On NECS x Xu et al. 2022 scored against Metabolon compound IDs, one-to-one links were 397 of 398
 correct (99.7%) versus 439 of 575 (76.3%) for all links.
 
+**Identification-confidence markers** (unreleased). Metabolon marks how a compound was identified
+with asterisks on its name: no asterisk means confirmed with an authentic chemical standard, `*`
+means identified with confidence but not confirmed with a standard, and `**` means reasonably
+identified without an available standard. Every link records each side's marker as
+`a_id_confidence` / `b_id_confidence` (0, 1 or 2, read from each result's `query_name`; see
+`biomapper.harmonize.id_confidence_marker`), and `link.id_confidence_differs` is true when they
+differ, as in `glyco-beta-muricholate**` vs `glyco-beta-muricholate`. A marker is a run of one or
+two asterisks that directly follows a non-space character and either ends the name or comes right
+before ` (` (`1-palmitoyl-gpi* (16:0)`); any other asterisk is ignored, and when a name carries
+two markers the longer one counts (`1-arachidonoyl-GPC* (20:4)*` is `*`). Names without markers
+are always 0, so panels that do not use Metabolon names are unaffected; a marked name linked to an
+unmarked one is flagged. `link.needs_review` is `ambiguous` or `id_confidence_differs`;
+`ambiguous` and `one_to_one_links` keep their meaning. `report.review_links` lists the links that
+need review, every other link is a confident match, and `summary()` adds `n_id_confidence_differs`
+and `n_needs_review`. Name linking compares names with their asterisks intact, so a pair that
+differs only in its marker links by identifier, never by name. On NECS x Xu et al. 2022 (engine
+v1.2.1, 2026-11-05), 390 links need no review and 389 of them share a Metabolon compound ID;
+before this flag the confident set was 399 links, 9 of them with differing markers.
+
 ```python
 from biomapper import map_entities
 from biomapper.harmonize import harmonize
@@ -440,7 +459,9 @@ What it does:
    `diff` (pairs found only by names, only with identifiers, by both), one-to-one and ambiguous
    link counts per arm (`n_one_to_one_links` / `n_ambiguous_links`, as in `harmonize()`), link
    bases, warnings, excluded rows (blank names), and pins. Each arm's link table carries
-   `a_partners`, `b_partners` and a `one_to_one` flag, so ambiguous links can be reviewed.
+   `a_partners`, `b_partners` and a `one_to_one` flag, so ambiguous links can be reviewed, plus
+   `a_id_confidence`, `b_id_confidence`, `id_confidence_differs` and `needs_review`; each arm's
+   summary adds `n_id_confidence_differs` and `n_needs_review`.
 
 **Output by default.** Results are written to `biomapper_runs/harmonize_cohorts_<UTC stamp>/`
 under the current directory (override with `output_dir=`; `save=False` to skip;

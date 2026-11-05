@@ -21,6 +21,13 @@ the same entry, so the pair is a candidate for review rather than a confident ma
 NECS x Xu et al. 2022 against Metabolon compound IDs (2026-10-27, engine cdd05e5): all links 439 of
 575 true (76.3% precision, 98.4% recall); one-to-one links only 397 of 398 (99.7%, recall 89.0%);
 the 177 ambiguous links held 42 true matches.
+
+Every link also records the Metabolon identification-confidence marker on each side's name
+(``a_id_confidence`` / ``b_id_confidence``, see :func:`id_confidence_marker`). A link whose two
+names carry different markers (``glyco-beta-muricholate**`` vs ``glyco-beta-muricholate``) has
+``id_confidence_differs``: the two cohorts identified the compound with different confidence, so a
+person should look at it even when the link is one-to-one. ``needs_review`` is ``ambiguous`` OR
+``id_confidence_differs``; ``ambiguous`` itself is unchanged.
 """
 
 from __future__ import annotations
@@ -48,10 +55,32 @@ NAME_CASEFOLD_MIN_LENGTH_EXCLUSIVE = 4
 
 _WS = re.compile(r"\s+")
 
+# Metabolon marks how confidently a compound was identified with trailing asterisks on its name:
+# none = confirmed with an authentic chemical standard, "*" = identified with confidence but not
+# confirmed with a standard, "**" = reasonably identified without an available standard. A marker
+# is a run of exactly one or two asterisks that directly follows a non-space character and either
+# ends the name (``glyco-beta-muricholate**``) or is followed by " (" (``1-palmitoyl-gpi* (16:0)``).
+# Any other asterisk (a run of three or more, a leading or space-separated asterisk, one inside a
+# word) is not a marker and is ignored.
+_ID_CONFIDENCE_MARKER = re.compile(r"(?<=[^\s*])\*{1,2}(?=$| \()")
+
 
 def normalize_name(name: str) -> str:
     """Whitespace normalization only: strip, and collapse internal runs to one space."""
     return _WS.sub(" ", name).strip()
+
+
+def id_confidence_marker(name: str) -> int:
+    """Return the Metabolon identification-confidence marker on ``name``: 0, 1 or 2 asterisks.
+
+    0 means the name carries no marker (for a Metabolon name: confirmed with an authentic
+    standard; for any other name: nothing is claimed). 1 is ``*`` and 2 is ``**`` (see
+    ``_ID_CONFIDENCE_MARKER`` for exactly what counts). When a name carries more than one marker,
+    the longest wins: Xu et al. write ``1-arachidonoyl-GPC* (20:4)*`` for the compound other
+    cohorts name ``1-arachidonoyl-GPC (20:4n6)*``, so the two single markers are one ``*``, not
+    ``**``. The name is whitespace-normalized first.
+    """
+    return max((len(m) for m in _ID_CONFIDENCE_MARKER.findall(normalize_name(name))), default=0)
 
 
 @dataclass(frozen=True)
@@ -62,6 +91,9 @@ class Link:
     formed by name alone). ``basis`` is the strongest basis that applies (see ``BASIS_ORDER``) and
     ``bases`` is every basis that applies. ``a_partners`` is how many B-side entities ``a_key``
     links to in the same result, and ``b_partners`` how many A-side entities ``b_key`` links to.
+    ``a_id_confidence`` / ``b_id_confidence`` are the Metabolon identification-confidence markers
+    on each side's name (0, 1 or 2 asterisks; see :func:`id_confidence_marker`). :func:`harmonize`
+    sets them from each result's ``query_name``; a link built without names keeps 0 on both sides.
     """
 
     a_key: str
@@ -71,6 +103,8 @@ class Link:
     bases: frozenset[str] = frozenset({"identifier"})
     a_partners: int = 1
     b_partners: int = 1
+    a_id_confidence: int = 0
+    b_id_confidence: int = 0
 
     @property
     def name_only(self) -> bool:
@@ -85,6 +119,21 @@ class Link:
         cis/trans or mono/disulfate forms on one node), so each links to all of them.
         """
         return self.a_partners > 1 or self.b_partners > 1
+
+    @property
+    def id_confidence_differs(self) -> bool:
+        """True when the two names carry different Metabolon identification-confidence markers.
+
+        ``glyco-beta-muricholate**`` vs ``glyco-beta-muricholate``: one cohort confirmed the
+        compound with a standard and the other did not. Two names without markers never differ,
+        so panels that do not use Metabolon markers are unaffected.
+        """
+        return self.a_id_confidence != self.b_id_confidence
+
+    @property
+    def needs_review(self) -> bool:
+        """True when a person should look at it: ``ambiguous`` OR ``id_confidence_differs``."""
+        return self.ambiguous or self.id_confidence_differs
 
 
 def with_partner_counts(links: Iterable[Link]) -> tuple[Link, ...]:
@@ -166,6 +215,8 @@ _RESERVED_SUMMARY_KEYS: frozenset[str] = frozenset(
         "n_name_match_withheld",
         "n_one_to_one_links",
         "n_ambiguous_links",
+        "n_id_confidence_differs",
+        "n_needs_review",
     }
 )
 
@@ -289,13 +340,25 @@ class HarmonizationResult:
 
     @property
     def one_to_one_links(self) -> tuple[Link, ...]:
-        """Links where each side has exactly one partner: the confident matches."""
+        """Links where each side has exactly one partner (not ``ambiguous``).
+
+        A one-to-one link can still need review when its names carry different identification
+        confidence markers; :attr:`review_links` is the full set a person should look at.
+        """
         return tuple(lk for lk in self.links if not lk.ambiguous)
 
     @property
     def ambiguous_links(self) -> tuple[Link, ...]:
         """Links where either side has several partners: candidates for review, not matches."""
         return tuple(lk for lk in self.links if lk.ambiguous)
+
+    @property
+    def review_links(self) -> tuple[Link, ...]:
+        """Links that need review: ``ambiguous`` OR ``id_confidence_differs``.
+
+        The links NOT in this set are the confident matches.
+        """
+        return tuple(lk for lk in self.links if lk.needs_review)
 
     # -- what could link -------------------------------------------------
 
@@ -366,6 +429,8 @@ class HarmonizationResult:
             "n_name_match_withheld": len(self.name_match_withheld),
             "n_one_to_one_links": len(self.one_to_one_links),
             "n_ambiguous_links": len(self.ambiguous_links),
+            "n_id_confidence_differs": sum(1 for lk in self.links if lk.id_confidence_differs),
+            "n_needs_review": len(self.review_links),
             self.a_label: {
                 "total": self.n_a_total,
                 "comparable": self.n_a_comparable,
@@ -491,8 +556,10 @@ def harmonize(
         A :class:`HarmonizationResult`. Entities that resolved to nothing are reported in
         ``a_unresolved`` / ``b_unresolved`` as refusal candidates, and entities whose mapping call
         errored in ``a_errors`` / ``b_errors``. Neither is silently dropped. Each link carries its
-        partner counts; ``one_to_one_links`` are the confident matches and ``ambiguous_links``
-        (either side has several partners) are review candidates. All links are still returned.
+        partner counts and each side's identification-confidence marker. ``ambiguous_links``
+        (either side has several partners) and links whose names carry different markers
+        (``id_confidence_differs``) together form ``review_links``; every other link is a
+        confident match. All links are still returned.
 
     Raises:
         ValueError: If either side has duplicate keys (see ``key``), or if ``a_label`` and
@@ -528,6 +595,8 @@ def harmonize(
             shared=shared.get((a, b), frozenset()),
             basis=next(x for x in BASIS_ORDER if x in bases[(a, b)]),
             bases=frozenset(bases[(a, b)]),
+            a_id_confidence=id_confidence_marker(a_names[a]),
+            b_id_confidence=id_confidence_marker(b_names[b]),
         )
         for (a, b) in sorted(bases)
     )

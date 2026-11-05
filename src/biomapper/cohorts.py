@@ -597,7 +597,8 @@ class CohortHarmonizationReport:
 
     @staticmethod
     def _arm_summary(result: HarmonizationResult) -> dict[str, Any]:
-        # harmonize() already reports n_one_to_one_links / n_ambiguous_links per arm.
+        # harmonize() already reports n_one_to_one_links / n_ambiguous_links /
+        # n_id_confidence_differs / n_needs_review per arm.
         return result.summary()
 
     def summary(self) -> dict[str, Any]:
@@ -633,7 +634,8 @@ class CohortHarmonizationReport:
         _write_tsv(
             directory / f"links_{arm}.tsv",
             [f"{self.a_label}_key", f"{self.b_label}_key", "basis", "bases", "shared_identifiers",
-             "a_partners", "b_partners", "one_to_one"],
+             "a_partners", "b_partners", "one_to_one", "a_id_confidence", "b_id_confidence",
+             "id_confidence_differs", "needs_review"],
             (
                 [
                     lk.a_key,
@@ -644,6 +646,10 @@ class CohortHarmonizationReport:
                     lk.a_partners,
                     lk.b_partners,
                     not lk.ambiguous,
+                    lk.a_id_confidence,
+                    lk.b_id_confidence,
+                    lk.id_confidence_differs,
+                    lk.needs_review,
                 ]
                 for lk in result.links
             ),
