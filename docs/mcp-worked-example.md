@@ -7,6 +7,9 @@ except where a tool result is truncated (marked `…`).
 
 ## Setup
 
+These trials ran on 1.6.0. On 1.6.2 or later the launch line is `uvx biomapper`; the line below
+still works.
+
 ```bash
 claude mcp add --scope user biomapper -- uvx --from 'biomapper[mcp]' biomapper-mcp
 mkdir -p ~/mcp-trials && cd ~/mcp-trials
