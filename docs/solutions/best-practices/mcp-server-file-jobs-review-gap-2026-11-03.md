@@ -42,7 +42,7 @@ over the biomapper2 API:
 - Background file jobs (`map_file` / `job_status` / `resume_job` / `cancel_job`): chunks of 5, fsynced
   `EntityCache`, atomic `job.json`, an advisory lock per job, stall detection, auto-resume scoped to the session's
   roots, a path allow-list (MCP roots plus `BIOMAPPER_MCP_ROOTS`), and output that never overwrites.
-- Packaging: `mcp>=2.3,<3` optional extra and the `biomapper-mcp` script. `EntityCache` moved to pandas-free
+- Packaging (as of 1.6.0; **superseded in 1.6.2**, where the SDK became a base dependency and `uvx biomapper` the launch line, see `mcp-registry-pypi-launch-contract-2026-11-04.md`): `mcp>=2.3,<3` optional extra and the `biomapper-mcp` script. `EntityCache` moved to pandas-free
   `biomapper._checkpoint`, and pin collection was factored into `biomapper._pins.collect_pins`.
 
 The SDK surface (MCP 2.3 `MCPServer`, `Resolve(ListRoots)`, how roots behave when the client doesn't support them)
@@ -87,7 +87,7 @@ with all eight Greptile findings:
 - Poison-row bisection: no bisect logic is in `jobs.py`.
 - Greptile's re-review of `fe1988b`: the last summary edit (18:59Z) came before the push (19:06Z). Don't read
   the 0/5 as the final score, and don't read silence as approval.
-- The live prod run and `mcp-publisher` validation of `server.json`, both unchecked in the PR test plan.
+- The live prod run and `mcp-publisher` validation of `server.json`, both unchecked in the PR test plan. (Both done 2026-11-04: live trials in `docs/mcp-worked-example.md`; registry publish in `mcp-registry-pypi-launch-contract-2026-11-04.md`.)
 
 ## Guidance
 
