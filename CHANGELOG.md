@@ -5,6 +5,27 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **`harmonize()` flags links whose names differ in Metabolon identification-confidence markers.**
+  Metabolon suffixes a name with `*` (identified with confidence, not confirmed with a standard)
+  or `**` (reasonably identified, no standard available); no asterisk means confirmed with an
+  authentic standard. Every `Link` now records `a_id_confidence` and `b_id_confidence` (0, 1 or 2,
+  parsed from each result's `query_name` by the new `biomapper.harmonize.id_confidence_marker`),
+  and `Link.id_confidence_differs` is true when they differ. A marker is a run of one or two
+  asterisks right after a non-space character, at the end of the name or right before ` (`; other
+  asterisks are ignored, and the longer of two markers on one name counts. The new
+  `Link.needs_review` is `ambiguous` or `id_confidence_differs`, and
+  `HarmonizationResult.review_links` lists those links. `ambiguous`, `one_to_one_links` and
+  `n_one_to_one_links` are unchanged, so a one-to-one link can now need review. `summary()` adds
+  `n_id_confidence_differs` and `n_needs_review` (both now reserved cohort labels), and
+  `harmonize_cohorts()` link tables add `a_id_confidence`, `b_id_confidence`,
+  `id_confidence_differs` and `needs_review` columns. Names without markers are always 0, so other
+  panels are unaffected. Why: on NECS x Xu et al. 2022 (engine v1.2.1, 2026-11-05), 9 of the 399
+  one-to-one links paired names whose markers differ, including 6 of the 10 links beyond Monti et
+  al.'s published pairs that share a Metabolon compound ID. With the flag, 390 links need no
+  review and 389 of them share a compound ID; 183 links need review, in 29 connected groups.
+
 ## [1.6.2] - 2026-11-04
 
 ### Changed
