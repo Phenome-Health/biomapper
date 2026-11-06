@@ -379,6 +379,48 @@ differs only in its marker links by identifier, never by name. On NECS x Xu et a
 v1.2.1, 2026-11-05), 390 links need no review and 389 of them share a Metabolon compound ID;
 before this flag the confident set was 399 links, 9 of them with differing markers.
 
+**Mixture names** (unreleased). A name that lists alternative compounds, such as
+`butyrate/isobutyrate (4:0)`, describes a measurement that may be either compound, so a link from
+it is a review candidate even when it is one-to-one. Every link records `a_is_mixture` /
+`b_is_mixture`, and `link.mixture` is either side being one. `biomapper.harmonize.is_mixture_name`
+applies this rule to the whitespace-normalized, casefolded name; any one of these makes it a
+mixture:
+
+1. `or` as a word between spaces: `linolenate [alpha or gamma; (18:3n3 or 6)]`,
+   `dihomo-linolenate (20:3n3 or n6)`.
+2. `+` with a space on each side: `dimethylarginine (sdma + adma)`,
+   `(n(1) + n(8))-acetylspermidine` (but not `NAD+`).
+3. `/` with at least three letters right before it and a letter or a locant (`2-`, `5alpha-`)
+   right after it: `butyrate/isobutyrate (4:0)`, `2-hydroxybutyrate/2-hydroxyisobutyrate`. Lipid
+   chain notation (`PC 16:0/18:1`, `d18:1/17:0`) has a digit or `)` before the slash and never
+   counts; neither does a slash before a unit word (`mmol/mol`) or any slash in a name containing
+   the word `ratio`.
+4. A bracketed group that is a comma-separated list of two or more lipid chains, Metabolon's
+   multi-isomer names: `sphingomyelin (d18:1/17:0, d17:1/18:0, d19:1/16:0)`. Other comma lists
+   (`androstenediol (3alpha, 17alpha) monosulfate`, `bilirubin (z,z)`) do not count.
+
+When the server sends a `name_is_mixture` flag on a result, a `True` also marks the name a
+mixture; a `False` does not override the name rule, and a server without the field changes
+nothing. `link.needs_review` is now `ambiguous`, `id_confidence_differs` or `mixture`;
+`link.review_reasons` names which, `report.mixture_links` lists the mixture links, and `summary()`
+adds `n_mixture_links`. The rule is written against Metabolon-style metabolite names.
+
+**Possible missed matches** (unreleased). `report.possible_missed` lists every entity that ended
+up in no link although its mapping already carries a review signal, so a reviewer sees it next to
+the review links instead of it disappearing. Each entry (`PossibleMiss`) has the cohort label, key,
+name, `chosen_kg_id`, whether it resolved, and its `reasons`: the mapping's `chosen_kg_id_review`
+value (`divergent_refmet`, `conflict_no_structure`), `certificate_contradicted`, and/or
+`mixture`. Errored entities are never listed. `report.a_possible_missed` / `b_possible_missed` split
+it by side, and `summary()` adds `n_possible_missed` plus a `possible_missed` count in each cohort
+block. Entries are listed per cohort; nothing pairs them across cohorts.
+
+On NECS x Xu et al. 2022 (engine v1.2.1, offline re-score 2026-11-06), the mixture rule moves 17
+more links into review: 373 links need no review and 372 of them share a Metabolon compound ID,
+and 200 links need review. 76 entities are listed as possible misses (67 NECS, 9 Xu), and they
+include one side of both Monti et al. pairs BioMapper did not link
+(`butyrate/isobutyrate (4:0)` with `butyrate (4:0)`, and `dihomo-linolenate (20:3n3 or n6)` with
+`dihomolinolenate (20:3n3 or 3n6)`).
+
 ```python
 from biomapper import map_entities
 from biomapper.harmonize import harmonize
@@ -460,13 +502,17 @@ What it does:
    link counts per arm (`n_one_to_one_links` / `n_ambiguous_links`, as in `harmonize()`), link
    bases, warnings, excluded rows (blank names), and pins. Each arm's link table carries
    `a_partners`, `b_partners` and a `one_to_one` flag, so ambiguous links can be reviewed, plus
-   `a_id_confidence`, `b_id_confidence`, `id_confidence_differs` and `needs_review`; each arm's
-   summary adds `n_id_confidence_differs` and `n_needs_review`.
+   `a_id_confidence`, `b_id_confidence`, `id_confidence_differs`, `needs_review`,
+   `a_is_mixture`, `b_is_mixture`, `mixture` and `review_reasons`; each arm's summary adds
+   `n_id_confidence_differs`, `n_mixture_links`, `n_needs_review` and `n_possible_missed`. Each
+   arm also writes `possible_missed_<arm>.tsv` (cohort, key, name, chosen_kg_id, resolved,
+   reasons).
 
 **Output by default.** Results are written to `biomapper_runs/harmonize_cohorts_<UTC stamp>/`
 under the current directory (override with `output_dir=`; `save=False` to skip;
 `report.write(path)` any time): mapping results per arm and cohort, written as each arm finishes
-so a failure keeps finished work, link tables per arm, `diff.tsv`, `review_queue.tsv`,
+so a failure keeps finished work, link and possible-missed tables per arm, `diff.tsv`,
+`review_queue.tsv`,
 `settings.json` and `summary.json`. Nothing beyond what you passed in is written, and input files
 are recorded by name and SHA-256, never by absolute path.
 

@@ -27,7 +27,19 @@ Every link also records the Metabolon identification-confidence marker on each s
 names carry different markers (``glyco-beta-muricholate**`` vs ``glyco-beta-muricholate``) has
 ``id_confidence_differs``: the two cohorts identified the compound with different confidence, so a
 person should look at it even when the link is one-to-one. ``needs_review`` is ``ambiguous`` OR
-``id_confidence_differs``; ``ambiguous`` itself is unchanged.
+``id_confidence_differs`` OR ``mixture``; ``ambiguous`` itself is unchanged.
+
+Every link also records whether each side's name is a MIXTURE label (``a_is_mixture`` /
+``b_is_mixture``, see :func:`is_mixture_name`): a name that lists alternative compounds, such as
+``butyrate/isobutyrate (4:0)`` or ``dihomo-linolenate (20:3n3 or n6)``. The measured compound is
+one of several, so a link from it is a review candidate even when it is one-to-one. ``mixture`` is
+either side being one.
+
+Finally, :attr:`HarmonizationResult.possible_missed` lists the entities that ended up in NO link
+but whose mapping already carries a review signal (a ``chosen_kg_id_review`` value, a
+``contradicted`` certificate, or a mixture name). Such an entity may be a missed match rather than
+a cohort-specific compound, so it is shown to a reviewer next to the review links instead of
+disappearing silently.
 """
 
 from __future__ import annotations
@@ -64,6 +76,22 @@ _WS = re.compile(r"\s+")
 # word) is not a marker and is ignored.
 _ID_CONFIDENCE_MARKER = re.compile(r"(?<=[^\s*])\*{1,2}(?=$| \()")
 
+# Mixture labels: a name that lists alternative compounds (see is_mixture_name for the rule).
+# " or " / " + " as whole words with a space on each side.
+_MIXTURE_OR = re.compile(r"(?:^|\s)or\s")
+_MIXTURE_PLUS = re.compile(r"\s\+\s")
+# A "/" between two compound names: at least three letters right before it, and right after it a
+# letter or a locant ("2-", "5alpha-"). Lipid chain notation ("18:2/20:4", "d18:1/17:0",
+# "16:0(oh)/18:1") always has a digit or ")" right before the slash, so it never matches.
+_MIXTURE_SLASH = re.compile(r"(?<=[a-z]{3})/(?=([a-z]+)|\d+[a-z]*-)")
+# Unit words after a slash ("mmol/mol", "cells/ul") mean a unit, not an alternative name.
+_SLASH_UNIT_WORDS: frozenset[str] = frozenset(
+    {"l", "dl", "ml", "ul", "mol", "mmol", "umol", "min", "h", "hr", "day", "kg", "g", "mg"}
+)
+# One lipid chain specification, as an item of a comma-separated list: optional one-letter
+# prefix ("d18:1", "t18:0") or ether prefix ("O-16:0", "P-18:0"), then carbons:double bonds.
+_CHAIN_ITEM = re.compile(r"^(?:[a-z]|[op]-)?\d+:\d+")
+
 
 def normalize_name(name: str) -> str:
     """Whitespace normalization only: strip, and collapse internal runs to one space."""
@@ -83,6 +111,65 @@ def id_confidence_marker(name: str) -> int:
     return max((len(m) for m in _ID_CONFIDENCE_MARKER.findall(normalize_name(name))), default=0)
 
 
+def is_mixture_name(name: str) -> bool:
+    """True when ``name`` is a mixture label: it lists alternative compounds, not one compound.
+
+    The name is whitespace-normalized and casefolded, then any of these makes it a mixture:
+
+    1. ``or`` as a whole word between spaces: ``linolenate [alpha or gamma; (18:3n3 or 6)]``,
+       ``dihomo-linolenate (20:3n3 or n6)``.
+    2. ``+`` with a space on each side: ``dimethylarginine (sdma + adma)``,
+       ``(n(1) + n(8))-acetylspermidine``. ``NAD+`` or ``Ca2+`` (no space after) are not.
+    3. ``/`` between two compound names: at least three letters right before the slash, and a
+       letter or a numeric locant (``2-``, ``5alpha-``) right after it, as in
+       ``butyrate/isobutyrate (4:0)`` and ``2-hydroxybutyrate/2-hydroxyisobutyrate``. Lipid chain
+       notation (``PC 16:0/18:1``, ``d18:1/17:0``, ``16:0(oh)/18:1``) has a digit or ``)`` before
+       the slash and never counts. A slash followed by a unit word (``mmol/mol``) does not count,
+       and no slash counts in a name containing the word ``ratio`` (``albumin/creatinine ratio``).
+    4. A parenthetical or bracketed group that is a comma-separated list of two or more lipid
+       chain specifications (Metabolon's multi-isomer names):
+       ``sphingomyelin (d18:1/17:0, d17:1/18:0, d19:1/16:0)``. A comma list of anything else
+       (``androstenediol (3alpha, 17alpha) monosulfate``, ``bilirubin (z,z)``) does not count.
+
+    The rule is written against Metabolon-style metabolite names. It reads the name only; an
+    engine-provided ``MappingResult.name_is_mixture`` is combined with it in :func:`harmonize`.
+    """
+    text = normalize_name(name).casefold()
+    if _MIXTURE_OR.search(text) or _MIXTURE_PLUS.search(text):
+        return True
+    if not re.search(r"\bratio\b", text):
+        for m in _MIXTURE_SLASH.finditer(text):
+            if m.group(1) is None or m.group(1) not in _SLASH_UNIT_WORDS:
+                return True
+    for items in _group_items(text):
+        if len(items) >= 2 and all(_CHAIN_ITEM.match(item) for item in items):
+            return True
+    return False
+
+
+def _group_items(text: str) -> list[list[str]]:
+    """Every parenthetical or bracketed group in ``text``, split on its own top-level commas.
+
+    Nested groups are their own entries, and a comma inside a nested group does not split the
+    outer one: ``(16:1/18:2 [2], 16:0/18:3 [1])`` gives the items ``16:1/18:2 [2]`` and
+    ``16:0/18:3 [1]``. An unbalanced bracket ends nothing and is ignored.
+    """
+    groups: list[list[str]] = []
+    # Per open group: its items so far, and the start of the item being read.
+    stack: list[tuple[list[str], int]] = []
+    for i, ch in enumerate(text):
+        if ch in "([":
+            stack.append(([], i + 1))
+        elif ch in ")]" and stack:
+            items, start = stack.pop()
+            groups.append([*items, text[start:i]])
+        elif ch == "," and stack:
+            items, start = stack[-1]
+            items.append(text[start:i])
+            stack[-1] = (items, i + 1)
+    return [[item.strip() for item in g] for g in groups]
+
+
 @dataclass(frozen=True)
 class Link:
     """One harmonized pair.
@@ -94,6 +181,9 @@ class Link:
     ``a_id_confidence`` / ``b_id_confidence`` are the Metabolon identification-confidence markers
     on each side's name (0, 1 or 2 asterisks; see :func:`id_confidence_marker`). :func:`harmonize`
     sets them from each result's ``query_name``; a link built without names keeps 0 on both sides.
+    ``a_is_mixture`` / ``b_is_mixture`` say whether each side's name is a mixture label (see
+    :func:`is_mixture_name`, or the engine's ``name_is_mixture`` when it reports one); a link built
+    without names keeps ``False`` on both sides.
     """
 
     a_key: str
@@ -105,6 +195,8 @@ class Link:
     b_partners: int = 1
     a_id_confidence: int = 0
     b_id_confidence: int = 0
+    a_is_mixture: bool = False
+    b_is_mixture: bool = False
 
     @property
     def name_only(self) -> bool:
@@ -131,9 +223,32 @@ class Link:
         return self.a_id_confidence != self.b_id_confidence
 
     @property
+    def mixture(self) -> bool:
+        """True when either side's name is a mixture label (lists alternative compounds).
+
+        ``butyrate/isobutyrate (4:0)`` linked to ``butyrate (4:0)`` may be right, or the measured
+        peak may be isobutyrate, so a person should look even when the link is one-to-one.
+        """
+        return self.a_is_mixture or self.b_is_mixture
+
+    @property
+    def review_reasons(self) -> tuple[str, ...]:
+        """Why this link needs review, in a fixed order; empty for a confident match.
+
+        Any of ``"ambiguous"``, ``"id_confidence_differs"`` and ``"mixture"``.
+        """
+        flags = (
+            ("ambiguous", self.ambiguous),
+            ("id_confidence_differs", self.id_confidence_differs),
+            ("mixture", self.mixture),
+        )
+        return tuple(reason for reason, on in flags if on)
+
+    @property
     def needs_review(self) -> bool:
-        """True when a person should look at it: ``ambiguous`` OR ``id_confidence_differs``."""
-        return self.ambiguous or self.id_confidence_differs
+        """True when a person should look at it: ``ambiguous``, ``id_confidence_differs`` or
+        ``mixture``."""
+        return bool(self.review_reasons)
 
 
 def with_partner_counts(links: Iterable[Link]) -> tuple[Link, ...]:
@@ -216,7 +331,9 @@ _RESERVED_SUMMARY_KEYS: frozenset[str] = frozenset(
         "n_one_to_one_links",
         "n_ambiguous_links",
         "n_id_confidence_differs",
+        "n_mixture_links",
         "n_needs_review",
+        "n_possible_missed",
     }
 )
 
@@ -281,6 +398,54 @@ def curie_sets_from_results(
     }
 
 
+# Certificate states that count as a review signal on an unlinked entity.
+_REVIEW_CERTIFICATE_STATES: frozenset[str] = frozenset({"contradicted"})
+
+
+@dataclass(frozen=True)
+class PossibleMiss:
+    """An entity that ended up in NO link although its mapping carries a review signal.
+
+    ``cohort`` is the side's label, ``key`` its key in the result and ``name`` its ``query_name``.
+    ``resolved`` is whether it resolved to any identifier (an unresolved entity is also listed in
+    ``a_unresolved`` / ``b_unresolved``). ``reasons`` is one or more of, in this order:
+
+    - the mapping's ``chosen_kg_id_review`` value itself (``"divergent_refmet"``,
+      ``"conflict_no_structure"``, or whatever value the engine sends);
+    - ``"certificate_contradicted"``: the resolution certificate's state is ``contradicted``;
+    - ``"mixture"``: the name is a mixture label (see :func:`is_mixture_name`) or the engine set
+      ``name_is_mixture``.
+    """
+
+    cohort: str
+    key: str
+    name: str
+    chosen_kg_id: str | None
+    resolved: bool
+    reasons: tuple[str, ...]
+
+
+def mapping_review_signals(result: MappingResult) -> tuple[str, ...]:
+    """The review signals one mapping result carries, as :attr:`PossibleMiss.reasons` names them."""
+    reasons: list[str] = []
+    if result.chosen_kg_id_review:
+        reasons.append(result.chosen_kg_id_review)
+    if result.certificate is not None and result.certificate.state in _REVIEW_CERTIFICATE_STATES:
+        reasons.append(f"certificate_{result.certificate.state}")
+    if _result_is_mixture(result):
+        reasons.append("mixture")
+    return tuple(reasons)
+
+
+def _result_is_mixture(result: MappingResult) -> bool:
+    """The name rule, OR the engine's ``name_is_mixture`` when the engine sent one.
+
+    An engine ``True`` adds a mixture the name rule missed. An engine ``False`` does not clear the
+    name rule: a false mixture flag costs one review, a missed one hides a possible wrong match.
+    """
+    return is_mixture_name(result.query_name) or result.name_is_mixture is True
+
+
 @dataclass(frozen=True)
 class HarmonizationResult:
     """Cross-dataset equivalence between two cohorts, plus what could not be judged.
@@ -303,6 +468,9 @@ class HarmonizationResult:
     # (a_key, b_key) pairs whose keys match only after casefold and are too short to link by name
     # (see NAME_CASEFOLD_MIN_LENGTH_EXCLUSIVE). Reported for review, never linked.
     name_match_withheld: tuple[tuple[str, str], ...] = ()
+    # Entities in no link whose mapping carries a review signal (see PossibleMiss), A side first,
+    # each side in input order.
+    possible_missed: tuple[PossibleMiss, ...] = ()
 
     def __post_init__(self) -> None:
         # The labels key summary(); enforce that here so the invariant holds however the result
@@ -354,11 +522,25 @@ class HarmonizationResult:
 
     @property
     def review_links(self) -> tuple[Link, ...]:
-        """Links that need review: ``ambiguous`` OR ``id_confidence_differs``.
+        """Links that need review: ``ambiguous``, ``id_confidence_differs`` or ``mixture``.
 
-        The links NOT in this set are the confident matches.
+        The links NOT in this set are the confident matches. Look at :attr:`possible_missed`
+        alongside them: those are the entities that might belong in a link but are in none.
         """
         return tuple(lk for lk in self.links if lk.needs_review)
+
+    @property
+    def mixture_links(self) -> tuple[Link, ...]:
+        """Links where either side's name is a mixture label."""
+        return tuple(lk for lk in self.links if lk.mixture)
+
+    @property
+    def a_possible_missed(self) -> tuple[PossibleMiss, ...]:
+        return tuple(m for m in self.possible_missed if m.cohort == self.a_label)
+
+    @property
+    def b_possible_missed(self) -> tuple[PossibleMiss, ...]:
+        return tuple(m for m in self.possible_missed if m.cohort == self.b_label)
 
     # -- what could link -------------------------------------------------
 
@@ -430,7 +612,9 @@ class HarmonizationResult:
             "n_one_to_one_links": len(self.one_to_one_links),
             "n_ambiguous_links": len(self.ambiguous_links),
             "n_id_confidence_differs": sum(1 for lk in self.links if lk.id_confidence_differs),
+            "n_mixture_links": len(self.mixture_links),
             "n_needs_review": len(self.review_links),
+            "n_possible_missed": len(self.possible_missed),
             self.a_label: {
                 "total": self.n_a_total,
                 "comparable": self.n_a_comparable,
@@ -438,6 +622,7 @@ class HarmonizationResult:
                 "errors": self.n_a_errors,
                 "linked": self.n_a_linked,
                 "link_rate": self.a_link_rate,
+                "possible_missed": len(self.a_possible_missed),
             },
             self.b_label: {
                 "total": self.n_b_total,
@@ -446,6 +631,7 @@ class HarmonizationResult:
                 "errors": self.n_b_errors,
                 "linked": self.n_b_linked,
                 "link_rate": self.b_link_rate,
+                "possible_missed": len(self.b_possible_missed),
             },
         }
 
@@ -453,8 +639,11 @@ class HarmonizationResult:
 def _partition_side(
     results: Sequence[MappingResult],
     key: Callable[[MappingResult, int], str] | None,
-) -> tuple[dict[str, frozenset[str]], tuple[str, ...], dict[str, str], dict[str, str]]:
-    """Split one cohort into (linkable CURIE sets, errored keys), keying each row exactly once.
+) -> tuple[
+    dict[str, frozenset[str]], tuple[str, ...], dict[str, str], dict[str, MappingResult]
+]:
+    """Split one cohort into (linkable CURIE sets, errored keys, chosen nodes, results by key),
+    keying each row exactly once.
 
     Uniqueness is enforced across errored AND resolved rows together. Checking only the resolved
     subset would let one key appear in both ``a_errors`` and a link while describing two different
@@ -465,16 +654,42 @@ def _partition_side(
     curies: dict[str, frozenset[str]] = {}
     errored: list[str] = []
     nodes: dict[str, str] = {}
-    names: dict[str, str] = {}
+    by_key: dict[str, MappingResult] = {}
     for k, r in zip(keys, results, strict=True):
         if r.error:
             errored.append(k)
         else:
             curies[k] = curie_set(r.chosen_kg_id, r.kg_equivalent_ids)
-            names[k] = r.query_name
+            by_key[k] = r
             if r.chosen_kg_id:
                 nodes[k] = r.chosen_kg_id
-    return curies, tuple(errored), nodes, names
+    return curies, tuple(errored), nodes, by_key
+
+
+def _possible_missed(
+    label: str,
+    by_key: dict[str, MappingResult],
+    curies: dict[str, frozenset[str]],
+    linked: set[str],
+) -> list[PossibleMiss]:
+    """Non-errored entities of one side that are in no link and carry a review signal."""
+    out: list[PossibleMiss] = []
+    for k, r in by_key.items():
+        if k in linked:
+            continue
+        reasons = mapping_review_signals(r)
+        if reasons:
+            out.append(
+                PossibleMiss(
+                    cohort=label,
+                    key=k,
+                    name=r.query_name,
+                    chosen_kg_id=r.chosen_kg_id,
+                    resolved=bool(curies[k]),
+                    reasons=reasons,
+                )
+            )
+    return out
 
 
 def name_matches(
@@ -556,18 +771,22 @@ def harmonize(
         A :class:`HarmonizationResult`. Entities that resolved to nothing are reported in
         ``a_unresolved`` / ``b_unresolved`` as refusal candidates, and entities whose mapping call
         errored in ``a_errors`` / ``b_errors``. Neither is silently dropped. Each link carries its
-        partner counts and each side's identification-confidence marker. ``ambiguous_links``
-        (either side has several partners) and links whose names carry different markers
-        (``id_confidence_differs``) together form ``review_links``; every other link is a
-        confident match. All links are still returned.
+        partner counts, each side's identification-confidence marker and whether each side's
+        name is a mixture label. ``ambiguous_links`` (either side has several partners), links
+        whose names carry different markers (``id_confidence_differs``) and links with a mixture
+        name on either side (``mixture``) together form ``review_links``; every other link is a
+        confident match. All links are still returned. ``possible_missed`` lists the entities in
+        no link whose mapping carries a review signal (see :class:`PossibleMiss`).
 
     Raises:
         ValueError: If either side has duplicate keys (see ``key``), or if ``a_label`` and
             ``b_label`` are equal or collide with a reserved ``summary()`` field.
     """
     _require_distinct_labels(a_label, b_label)
-    a_curies, a_errors, a_nodes, a_names = _partition_side(a_results, key)
-    b_curies, b_errors, b_nodes, b_names = _partition_side(b_results, key)
+    a_curies, a_errors, a_nodes, a_by_key = _partition_side(a_results, key)
+    b_curies, b_errors, b_nodes, b_by_key = _partition_side(b_results, key)
+    a_names = {k: r.query_name for k, r in a_by_key.items()}
+    b_names = {k: r.query_name for k, r in b_by_key.items()}
     overlap = link_by_intersection(a_curies, b_curies)
 
     bases: dict[tuple[str, str], set[str]] = defaultdict(set)
@@ -597,6 +816,8 @@ def harmonize(
             bases=frozenset(bases[(a, b)]),
             a_id_confidence=id_confidence_marker(a_names[a]),
             b_id_confidence=id_confidence_marker(b_names[b]),
+            a_is_mixture=_result_is_mixture(a_by_key[a]),
+            b_is_mixture=_result_is_mixture(b_by_key[b]),
         )
         for (a, b) in sorted(bases)
     )
@@ -607,6 +828,10 @@ def harmonize(
         n_a_linked=len({lk.a_key for lk in links}),
         n_b_linked=len({lk.b_key for lk in links}),
     )
+    possible_missed = (
+        *_possible_missed(a_label, a_by_key, a_curies, {lk.a_key for lk in links}),
+        *_possible_missed(b_label, b_by_key, b_curies, {lk.b_key for lk in links}),
+    )
     return HarmonizationResult(
         overlap=overlap,
         a_label=a_label,
@@ -616,4 +841,5 @@ def harmonize(
         n_a_total=len(a_results),
         n_b_total=len(b_results),
         name_match_withheld=tuple(withheld),
+        possible_missed=possible_missed,
     )

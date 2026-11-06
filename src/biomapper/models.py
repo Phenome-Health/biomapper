@@ -147,6 +147,8 @@ class RawApiResult(BaseModel):
     kg_ids: dict[str, list[str]] = Field(default_factory=dict)
     assigned_ids: dict[str, dict[str, dict[str, Any]]] = Field(default_factory=dict)
     kestrel_results: list[KestrelSearchResult] | None = None
+    # Engine-side mixture flag (the name lists alternative compounds). Older servers omit it.
+    name_is_mixture: bool | None = None
     error: str | None = None
 
 
@@ -252,6 +254,9 @@ class MappingResult(BaseModel):
             is warranted.
         confidence_score: Highest confidence score found across annotators.
         identifiers:      Vocabulary → list[id] mapping (e.g. ``{"CHEBI": ["15971"]}``).
+        name_is_mixture:  The engine's mixture-label flag for this name, when the server sends
+            one; ``None`` when it does not. :func:`biomapper.harmonize.harmonize` combines it
+            with its own name rule.
         hmdb_hint:        HMDB hint that was passed in the request, if any.
         error:            Error message if the request or mapping failed.
         raw_response:     Full parsed API response for downstream inspection.
@@ -272,6 +277,7 @@ class MappingResult(BaseModel):
     refmet_snapshot_version: str | None = None
     tier_b_snapshot_version: str | None = None
     kestrel_results: list[KestrelSearchResult] | None = None
+    name_is_mixture: bool | None = None
     hmdb_hint: str | None = None
     error: str | None = None
     raw_response: RawApiResponse | None = None
@@ -385,6 +391,7 @@ class MappingResult(BaseModel):
         base["refmet_snapshot_version"] = r.refmet_snapshot_version
         base["tier_b_snapshot_version"] = r.tier_b_snapshot_version
         base["kestrel_results"] = r.kestrel_results
+        base["name_is_mixture"] = r.name_is_mixture
 
         # Flatten assigned_ids → {vocab: [code, ...]} and extract best score
         identifiers: dict[str, list[str]] = {}

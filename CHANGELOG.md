@@ -25,6 +25,31 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   one-to-one links paired names whose markers differ, including 6 of the 10 links beyond Monti et
   al.'s published pairs that share a Metabolon compound ID. With the flag, 390 links need no
   review and 389 of them share a compound ID; 183 links need review, in 29 connected groups.
+- **`harmonize()` sends links with a mixture name to review.** A name that lists alternative
+  compounds (`butyrate/isobutyrate (4:0)`, `dihomo-linolenate (20:3n3 or n6)`,
+  `dimethylarginine (sdma + adma)`, `sphingomyelin (d18:1/17:0, d17:1/18:0, d19:1/16:0)`) may stand
+  for either compound, so a link from it needs a person even when it is one-to-one. The new
+  `biomapper.harmonize.is_mixture_name` flags a name with ` or ` as a word, ` + ` between spaces, a
+  `/` between compound names (three letters before it, a letter or locant after it; lipid chain
+  notation, unit slashes and `ratio` names excluded), or a bracketed comma list of two or more
+  lipid chains. Every `Link` records `a_is_mixture` / `b_is_mixture`, `Link.mixture` is either
+  side, and `Link.needs_review` is now `ambiguous`, `id_confidence_differs` or `mixture`;
+  `Link.review_reasons` names which, and `HarmonizationResult.mixture_links` lists them.
+  `MappingResult` and `RawApiResult` gain an optional `name_is_mixture` (the engine's own flag,
+  `None` when the server does not send it); a `True` marks the name a mixture too. `summary()` adds
+  `n_mixture_links` (a reserved cohort label), and `harmonize_cohorts()` link tables add
+  `a_is_mixture`, `b_is_mixture`, `mixture` and `review_reasons` columns after the existing ones.
+- **`HarmonizationResult.possible_missed`: unlinked entities that already carry a review
+  signal.** An entity in no link whose mapping has a `chosen_kg_id_review` value, a `contradicted`
+  certificate or a mixture name is listed as a `PossibleMiss` (cohort, key, name, chosen_kg_id,
+  resolved, reasons) instead of disappearing; errored entities are never listed. The new
+  `biomapper.harmonize.mapping_review_signals` returns one result's reasons. `summary()` adds
+  `n_possible_missed` (a reserved cohort label) and a `possible_missed` count per cohort, and
+  `harmonize_cohorts()` writes `possible_missed_<arm>.tsv` per arm. Why: on NECS x Xu et al. 2022
+  (engine v1.2.1, offline re-score 2026-11-06), both Monti et al. pairs BioMapper did not link
+  were silent misses; both now appear on the list (76 entities: 67 NECS, 9 Xu). With mixture
+  review, 373 links need no review and 372 of them share a compound ID; 200 need review, in 46
+  connected groups.
 
 ## [1.6.2] - 2026-11-04
 

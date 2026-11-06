@@ -279,7 +279,9 @@ def test_summary_keeps_both_cohorts_and_the_link_count_separate():
         "n_one_to_one_links",
         "n_ambiguous_links",
         "n_id_confidence_differs",
+        "n_mixture_links",
         "n_needs_review",
+        "n_possible_missed",
         "x",
         "y",
     }
