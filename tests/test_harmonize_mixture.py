@@ -16,9 +16,15 @@ from biomapper.harmonize import (
     harmonize,
     is_mixture_name,
     mapping_review_signals,
+    mixture_alternatives_key,
 )
 from biomapper.harmonize.linking import Link
-from biomapper.models import MappingResult, RawApiResult, ResolutionCertificate
+from biomapper.models import (
+    LipidResolution,
+    MappingResult,
+    RawApiResult,
+    ResolutionCertificate,
+)
 from tests.cohorts_helpers import FakeMapper, by_name, mr
 
 
@@ -101,31 +107,106 @@ def _one_to_one(a_names: list[str], b_names: list[str]) -> tuple[list[MappingRes
     )
 
 
-def test_mixture_link_goes_to_review_even_when_one_to_one() -> None:
+@pytest.mark.parametrize(
+    "a, b",
+    [
+        ("dimethylarginine (sdma + adma)", "dimethylarginine (adma + sdma)"),
+        ("sphingomyelin (d18:1/17:0, d17:1/18:0, d19:1/16:0)",
+         "sphingomyelin (d18:1/17:0, d17:1/18:0, d19:1/16:0)"),
+        ("sphingomyelin (d18:1/17:0, d17:1/18:0, d19:1/16:0)",
+         "Sphingomyelin (d19:1/16:0, d18:1/17:0, d17:1/18:0)"),
+        ("aconitate [cis or trans]", "aconitate (trans or cis)"),
+        ("2-methylcitrate/homocitrate", "homocitrate/2-methylcitrate"),
+        ("(n(1) + n(8))-acetylspermidine", "(n(8) + n(1))-acetylspermidine"),
+        # Markers are id_confidence_differs' business, not part of the alternatives.
+        ("ceramide (d18:1/14:0, d16:1/16:0)*", "ceramide (d18:1/14:0, d16:1/16:0)"),
+        ("diacylglycerol (16:1/18:2 [2], 16:0/18:3 [1])*",
+         "diacylglycerol (16:0/18:3 [1], 16:1/18:2 [2])*"),
+    ],
+)
+def test_same_alternatives_give_the_same_key(a: str, b: str) -> None:
+    assert mixture_alternatives_key(a) == mixture_alternatives_key(b)
+
+
+@pytest.mark.parametrize(
+    "a, b",
+    [
+        ("dihomo-linolenate (20:3n3 or n6)", "dihomolinolenate (20:3n3 or 3n6)"),
+        ("linolenate [alpha or gamma; (18:3n3 or 6)]", "linolenate (18:3n3 or 3n6)"),
+        ("sphingomyelin (d18:1/17:0, d17:1/18:0)",
+         "sphingomyelin (d18:1/17:0, d17:1/18:0, d19:1/16:0)"),
+        ("arabitol/xylitol", "arabitol/ribitol"),
+        # Alternatives are reordered only within one bracket level; this errs toward review.
+        ("butyrate/isobutyrate (4:0)", "isobutyrate (4:0)/butyrate"),
+    ],
+)
+def test_different_alternatives_give_different_keys(a: str, b: str) -> None:
+    assert mixture_alternatives_key(a) != mixture_alternatives_key(b)
+
+
+def test_mixture_key_examples() -> None:
+    key = mixture_alternatives_key("Dimethylarginine (SDMA + ADMA)")
+    assert key == "dimethylarginine (adma | sdma)"
+    assert mixture_alternatives_key("glucose") == "glucose"
+    assert mixture_alternatives_key("albumin/creatinine ratio") == "albumin/creatinine ratio"
+
+
+def test_mixture_review_only_when_the_sides_differ() -> None:
     report = harmonize(
         *_one_to_one(
-            ["dimethylarginine (sdma + adma)", "glucose", "sphingomyelin (d18:1/17:0)"],
-            ["dimethylarginine (adma + sdma)", "glucose", "linolenate (18:3n3 or 3n6)"],
+            [
+                "dimethylarginine (sdma + adma)",  # same set, reordered: not flagged
+                "sphingomyelin (d18:1/17:0, d17:1/18:0, d19:1/16:0)",  # identical: not flagged
+                "butyrate/isobutyrate (4:0)",  # one side only: flagged
+                "dihomo-linolenate (20:3n3 or n6)",  # both, different sets: flagged
+                "glucose",
+            ],
+            [
+                "dimethylarginine (adma + sdma)",
+                "sphingomyelin (d18:1/17:0, d17:1/18:0, d19:1/16:0)",
+                "butyrate (4:0)",
+                "dihomolinolenate (20:3n3 or 3n6)",
+                "glucose",
+            ],
         )
     )
     by_a = {lk.a_key: lk for lk in report.links}
     dma = by_a["dimethylarginine (sdma + adma)"]
     assert (dma.a_is_mixture, dma.b_is_mixture) == (True, True)
-    assert not dma.ambiguous and dma.mixture and dma.needs_review
-    assert dma.review_reasons == ("mixture",)
-    one_side = by_a["sphingomyelin (d18:1/17:0)"]
-    assert (one_side.a_is_mixture, one_side.b_is_mixture) == (False, True)
-    assert one_side.needs_review
+    assert dma.a_mixture_key == dma.b_mixture_key == "dimethylarginine (adma | sdma)"
+    assert not dma.mixture and not dma.needs_review
+    sm = by_a["sphingomyelin (d18:1/17:0, d17:1/18:0, d19:1/16:0)"]
+    assert sm.a_is_mixture and sm.b_is_mixture and not sm.needs_review
+    but = by_a["butyrate/isobutyrate (4:0)"]
+    assert (but.a_is_mixture, but.b_is_mixture) == (True, False)
+    assert (but.a_mixture_key, but.b_mixture_key) == ("butyrate | isobutyrate (4:0)", "")
+    assert but.mixture and but.review_reasons == ("mixture",)
+    dgla = by_a["dihomo-linolenate (20:3n3 or n6)"]
+    assert dgla.a_is_mixture and dgla.b_is_mixture and dgla.mixture and dgla.needs_review
     assert not by_a["glucose"].needs_review and by_a["glucose"].review_reasons == ()
     s = report.summary()
     assert s["n_mixture_links"] == 2 and s["n_needs_review"] == 2
-    assert s["n_one_to_one_links"] == 3
+    assert s["n_one_to_one_links"] == 5
+    assert [lk.a_key for lk in report.mixture_links] == [
+        "butyrate/isobutyrate (4:0)", "dihomo-linolenate (20:3n3 or n6)",
+    ]
+
+
+def test_link_mixture_property_from_fields() -> None:
+    def lk(am: bool, bm: bool, ak: str = "", bk: str = "") -> Link:
+        return Link(a_key="a", b_key="b", shared=frozenset(), a_is_mixture=am, b_is_mixture=bm,
+                    a_mixture_key=ak, b_mixture_key=bk)
+
+    assert not lk(False, False).mixture
+    assert lk(True, False, "x | y").mixture and lk(False, True, "", "x | y").mixture
+    assert not lk(True, True, "x | y", "x | y").mixture
+    assert lk(True, True, "x | y", "x | z").mixture
 
 
 def test_review_reasons_list_every_flag_in_order() -> None:
     lk = Link(
         a_key="x*", b_key="x", shared=frozenset(), a_partners=2, a_id_confidence=1,
-        b_is_mixture=True,
+        b_is_mixture=True, b_mixture_key="x | y",
     )
     assert lk.review_reasons == ("ambiguous", "id_confidence_differs", "mixture")
     assert Link(a_key="a", b_key="b", shared=frozenset()).review_reasons == ()
@@ -139,6 +220,23 @@ def test_engine_mixture_flag_is_honoured_when_present() -> None:
     assert not by_a["compound two"].mixture
 
 
+def test_engine_lipid_resolution_mixture_flag_is_honoured() -> None:
+    # Engine v1.3.1 reports the flag under lipid_resolution, not at the top level.
+    lipid = MappingResult(
+        query_name="FA 20:3", chosen_kg_id="RM:1",
+        lipid_resolution=LipidResolution(name_is_mixture=True),
+    )
+    plain = MappingResult(
+        query_name="FA 20:3", chosen_kg_id="RM:1",
+        lipid_resolution=LipidResolution(name_is_mixture=False),
+    )
+    (lk,) = harmonize([lipid], [plain]).links
+    assert (lk.a_is_mixture, lk.b_is_mixture) == (True, False)
+    assert lk.mixture
+    assert mapping_review_signals(lipid) == ("mixture",)
+    assert mapping_review_signals(plain) == ()
+
+
 def test_engine_false_does_not_clear_the_name_rule() -> None:
     a = [_r("butyrate/isobutyrate (4:0)", "RM:1", engine_mixture=False)]
     b = [_r("butyrate (4:0)", "RM:1")]
@@ -147,12 +245,27 @@ def test_engine_false_does_not_clear_the_name_rule() -> None:
 
 
 def test_engine_flag_parses_from_api_and_is_absent_on_older_servers() -> None:
-    new = MappingResult.from_batch_entry(
+    top = MappingResult.from_batch_entry(
         RawApiResult(chosen_kg_id="RM:1", name_is_mixture=True), query_name="x"
     )
+    nested = MappingResult.from_batch_entry(
+        RawApiResult.model_validate(
+            {"chosen_kg_id": "RM:1",
+             "lipid_resolution": {"name_is_mixture": True,
+                                  "query_species_from_parenthetical": True}}
+        ),
+        query_name="x",
+    )
     old = MappingResult.from_batch_entry(RawApiResult(chosen_kg_id="RM:1"), query_name="x")
-    assert new.name_is_mixture is True
-    assert old.name_is_mixture is None
+    old_lipid = MappingResult.from_batch_entry(
+        RawApiResult.model_validate({"chosen_kg_id": "RM:1", "lipid_resolution": {}}),
+        query_name="x",
+    )
+    assert top.name_is_mixture is True
+    assert nested.name_is_mixture is True
+    assert nested.lipid_resolution is not None
+    assert nested.lipid_resolution.query_species_from_parenthetical is True
+    assert old.name_is_mixture is None and old_lipid.name_is_mixture is None
 
 
 @pytest.mark.parametrize(
@@ -231,7 +344,8 @@ def test_name_link_removes_an_entity_from_possible_missed() -> None:
     report = harmonize(a, b, link_by_name=True)
     assert report.possible_missed == ()
     (lk,) = report.links
-    assert lk.mixture and lk.needs_review
+    # Same name on both sides: same alternatives, so the link is not a mixture review.
+    assert lk.a_is_mixture and lk.b_is_mixture and not lk.mixture
 
 
 @pytest.mark.parametrize("label", ["n_mixture_links", "n_possible_missed"])
@@ -258,13 +372,14 @@ def test_harmonize_cohorts_writes_mixture_columns_and_possible_missed_table(tmp_
         output_dir=tmp_path / "run",
     )
     arm = report.summary()["arms"]["names_only"]
-    assert arm["n_links"] == 1 and arm["n_mixture_links"] == 1 and arm["n_needs_review"] == 1
+    # Same alternatives on both sides: linked, not a mixture review.
+    assert arm["n_links"] == 1 and arm["n_mixture_links"] == 0 and arm["n_needs_review"] == 0
     assert arm["n_possible_missed"] == 1 and arm["necs"]["possible_missed"] == 1
     links = (tmp_path / "run" / "links_names_only.tsv").read_text().splitlines()
     header = links[0].split("\t")
     row = dict(zip(header, links[1].split("\t"), strict=True))
-    assert (row["a_is_mixture"], row["b_is_mixture"], row["mixture"]) == ("True", "True", "True")
-    assert row["review_reasons"] == "mixture" and row["needs_review"] == "True"
+    assert (row["a_is_mixture"], row["b_is_mixture"], row["mixture"]) == ("True", "True", "False")
+    assert row["review_reasons"] == "" and row["needs_review"] == "False"
     missed = (tmp_path / "run" / "possible_missed_names_only.tsv").read_text().splitlines()
     assert missed[0].split("\t") == ["cohort", "key", "name", "chosen_kg_id", "resolved", "reasons"]
     assert len(missed) == 2
