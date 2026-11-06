@@ -598,7 +598,7 @@ class CohortHarmonizationReport:
     @staticmethod
     def _arm_summary(result: HarmonizationResult) -> dict[str, Any]:
         # harmonize() already reports n_one_to_one_links / n_ambiguous_links /
-        # n_id_confidence_differs / n_needs_review per arm.
+        # n_id_confidence_differs / n_mixture_links / n_needs_review / n_possible_missed per arm.
         return result.summary()
 
     def summary(self) -> dict[str, Any]:
@@ -635,7 +635,8 @@ class CohortHarmonizationReport:
             directory / f"links_{arm}.tsv",
             [f"{self.a_label}_key", f"{self.b_label}_key", "basis", "bases", "shared_identifiers",
              "a_partners", "b_partners", "one_to_one", "a_id_confidence", "b_id_confidence",
-             "id_confidence_differs", "needs_review"],
+             "id_confidence_differs", "needs_review", "a_is_mixture", "b_is_mixture", "mixture",
+             "review_reasons"],
             (
                 [
                     lk.a_key,
@@ -650,8 +651,23 @@ class CohortHarmonizationReport:
                     lk.b_id_confidence,
                     lk.id_confidence_differs,
                     lk.needs_review,
+                    lk.a_is_mixture,
+                    lk.b_is_mixture,
+                    lk.mixture,
+                    "|".join(lk.review_reasons),
                 ]
                 for lk in result.links
+            ),
+        )
+
+    @staticmethod
+    def _write_possible_missed(directory: Path, arm: str, result: HarmonizationResult) -> None:
+        _write_tsv(
+            directory / f"possible_missed_{arm}.tsv",
+            ["cohort", "key", "name", "chosen_kg_id", "resolved", "reasons"],
+            (
+                [m.cohort, m.key, m.name, m.chosen_kg_id, m.resolved, "|".join(m.reasons)]
+                for m in result.possible_missed
             ),
         )
 
@@ -673,8 +689,10 @@ class CohortHarmonizationReport:
             for label, rows in by_label.items():
                 _write_mapping(directory, arm, label, rows)
         self._write_links(directory, _ARM_NAMES_ONLY, self.names_only)
+        self._write_possible_missed(directory, _ARM_NAMES_ONLY, self.names_only)
         if self.identifier is not None:
             self._write_links(directory, _ARM_IDENTIFIER, self.identifier)
+            self._write_possible_missed(directory, _ARM_IDENTIFIER, self.identifier)
         if self.diff is not None:
             _write_tsv(
                 directory / "diff.tsv",

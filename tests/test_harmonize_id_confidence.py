@@ -192,8 +192,8 @@ def test_harmonize_cohorts_propagates_markers_to_summary_and_link_table(tmp_path
     assert arm["n_id_confidence_differs"] == 1 and arm["n_needs_review"] == 1
     rows = (tmp_path / "run" / "links_names_only.tsv").read_text().splitlines()
     header = rows[0].split("\t")
-    assert header[-4:] == ["a_id_confidence", "b_id_confidence", "id_confidence_differs",
-                           "needs_review"]
+    assert header[8:12] == ["a_id_confidence", "b_id_confidence", "id_confidence_differs",
+                             "needs_review"]
     # Cohort keys are "<row>|<name>"; the marker is read from the name, not the key.
     by_key = {
         r.split("\t")[0].split("|", 1)[1]: dict(zip(header, r.split("\t"), strict=True))
