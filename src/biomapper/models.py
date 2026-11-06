@@ -98,6 +98,10 @@ class LipidResolution(BaseModel):
     goslin_dialect: str | None = None
     goslin_formula: str | None = None
     goslin_mass: float | None = None
+    # Engine v1.3.1+: the name lists alternatives (a mixture label), and the lipid query was built
+    # from the name's parenthetical rather than the whole name. ``None`` from older servers.
+    name_is_mixture: bool | None = None
+    query_species_from_parenthetical: bool | None = None
 
 
 class KestrelRequestParams(BaseModel):
@@ -134,6 +138,13 @@ class RawApiResult(BaseModel):
 
     name: str | None = None
     curies: list[str] = Field(default_factory=list)
+    # Engine v1.3.0+: the CURIE that identifies chosen_kg_id's node (curies is alphabetical, so
+    # curies[0] can be a losing annotator hit). Absent from older servers.
+    primary_curie: str | None = None
+    # Engine v1.3.0+ provenance: CURIEs normalized from the request's identifiers, and
+    # {annotator_slug: [CURIEs]} for what each annotator produced. Empty from older servers.
+    curies_provided: list[str] = Field(default_factory=list)
+    curies_assigned: dict[str, list[str]] = Field(default_factory=dict)
     chosen_kg_id: str | None = None
     chosen_kg_id_review: str | None = None
     chosen_kg_id_lipid_hint: str | None = None
@@ -147,7 +158,8 @@ class RawApiResult(BaseModel):
     kg_ids: dict[str, list[str]] = Field(default_factory=dict)
     assigned_ids: dict[str, dict[str, dict[str, Any]]] = Field(default_factory=dict)
     kestrel_results: list[KestrelSearchResult] | None = None
-    # Engine-side mixture flag (the name lists alternative compounds). Older servers omit it.
+    # Top-level mixture flag, tolerated if a server sends one; engine v1.3.1 reports it as
+    # lipid_resolution.name_is_mixture instead.
     name_is_mixture: bool | None = None
     error: str | None = None
 
@@ -247,16 +259,25 @@ class MappingResult(BaseModel):
     Attributes:
         query_name:       The name submitted to the API (after preprocessing).
         resolved:         Whether at least one identifier was returned.
-        primary_curie:    First CURIE in the response list.
+        primary_curie:    The CURIE to report for the entity. Read from the server's
+            ``primary_curie`` (engine v1.3.0+), which identifies ``chosen_kg_id``'s node; falls
+            back to the first entry of ``curies`` (alphabetical, so possibly a losing annotator
+            hit) only when the server does not send the field.
         chosen_kg_id:     The resolver-selected knowledge graph ID.
         chosen_kg_id_review: Review flag for source-weighted small-molecule ChEBI conflicts
             (``"divergent_refmet"`` or ``"conflict_no_structure"``); ``None`` when no review
             is warranted.
         confidence_score: Highest confidence score found across annotators.
         identifiers:      Vocabulary → list[id] mapping (e.g. ``{"CHEBI": ["15971"]}``).
-        name_is_mixture:  The engine's mixture-label flag for this name, when the server sends
-            one; ``None`` when it does not. :func:`biomapper.harmonize.harmonize` combines it
-            with its own name rule.
+        name_is_mixture:  The engine's mixture-label flag for this name: the top-level field if
+            the server sends one, else ``lipid_resolution.name_is_mixture`` (engine v1.3.1+,
+            lipid names); ``None`` when neither is present.
+            :func:`biomapper.harmonize.harmonize` combines it with its own name rule.
+        curies_by_annotator: ``{annotator_slug: [CURIEs]}``, which annotator produced each
+            assigned CURIE (server ``curies_assigned``, engine v1.3.0+; empty from older servers).
+            A CURIE two annotators returned is listed under both.
+        curies_provided:  CURIEs normalized from the identifiers supplied in the request (server
+            ``curies_provided``; empty from older servers).
         hmdb_hint:        HMDB hint that was passed in the request, if any.
         error:            Error message if the request or mapping failed.
         raw_response:     Full parsed API response for downstream inspection.
@@ -278,6 +299,8 @@ class MappingResult(BaseModel):
     tier_b_snapshot_version: str | None = None
     kestrel_results: list[KestrelSearchResult] | None = None
     name_is_mixture: bool | None = None
+    curies_by_annotator: dict[str, list[str]] = Field(default_factory=dict)
+    curies_provided: list[str] = Field(default_factory=list)
     hmdb_hint: str | None = None
     error: str | None = None
     raw_response: RawApiResponse | None = None
@@ -377,7 +400,14 @@ class MappingResult(BaseModel):
 
         if r.curies:
             base["resolved"] = True
+        # Prefer the server's primary_curie (engine v1.3.0+, derived from the chosen node); only
+        # an older server that omits the field gets the legacy curies[0].
+        if "primary_curie" in r.model_fields_set:
+            base["primary_curie"] = r.primary_curie
+        elif r.curies:
             base["primary_curie"] = r.curies[0]
+        base["curies_by_annotator"] = {k: list(v) for k, v in r.curies_assigned.items()}
+        base["curies_provided"] = list(r.curies_provided)
 
         base["chosen_kg_id"] = r.chosen_kg_id
         base["chosen_kg_id_review"] = r.chosen_kg_id_review
@@ -391,7 +421,11 @@ class MappingResult(BaseModel):
         base["refmet_snapshot_version"] = r.refmet_snapshot_version
         base["tier_b_snapshot_version"] = r.tier_b_snapshot_version
         base["kestrel_results"] = r.kestrel_results
-        base["name_is_mixture"] = r.name_is_mixture
+        base["name_is_mixture"] = (
+            r.name_is_mixture
+            if r.name_is_mixture is not None
+            else (r.lipid_resolution.name_is_mixture if r.lipid_resolution is not None else None)
+        )
 
         # Flatten assigned_ids → {vocab: [code, ...]} and extract best score
         identifiers: dict[str, list[str]] = {}

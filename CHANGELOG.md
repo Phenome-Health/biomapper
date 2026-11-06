@@ -25,20 +25,25 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   one-to-one links paired names whose markers differ, including 6 of the 10 links beyond Monti et
   al.'s published pairs that share a Metabolon compound ID. With the flag, 390 links need no
   review and 389 of them share a compound ID; 183 links need review, in 29 connected groups.
-- **`harmonize()` sends links with a mixture name to review.** A name that lists alternative
-  compounds (`butyrate/isobutyrate (4:0)`, `dihomo-linolenate (20:3n3 or n6)`,
+- **`harmonize()` sends links whose sides differ as mixtures to review.** A name that lists
+  alternative compounds (`butyrate/isobutyrate (4:0)`, `dihomo-linolenate (20:3n3 or n6)`,
   `dimethylarginine (sdma + adma)`, `sphingomyelin (d18:1/17:0, d17:1/18:0, d19:1/16:0)`) may stand
-  for either compound, so a link from it needs a person even when it is one-to-one. The new
-  `biomapper.harmonize.is_mixture_name` flags a name with ` or ` as a word, ` + ` between spaces, a
-  `/` between compound names (three letters before it, a letter or locant after it; lipid chain
-  notation, unit slashes and `ratio` names excluded), or a bracketed comma list of two or more
-  lipid chains. Every `Link` records `a_is_mixture` / `b_is_mixture`, `Link.mixture` is either
-  side, and `Link.needs_review` is now `ambiguous`, `id_confidence_differs` or `mixture`;
-  `Link.review_reasons` names which, and `HarmonizationResult.mixture_links` lists them.
-  `MappingResult` and `RawApiResult` gain an optional `name_is_mixture` (the engine's own flag,
-  `None` when the server does not send it); a `True` marks the name a mixture too. `summary()` adds
-  `n_mixture_links` (a reserved cohort label), and `harmonize_cohorts()` link tables add
-  `a_is_mixture`, `b_is_mixture`, `mixture` and `review_reasons` columns after the existing ones.
+  for either compound. The new `biomapper.harmonize.is_mixture_name` flags a name with ` or ` as a
+  word, ` + ` between spaces, a `/` between compound names (three letters before it, a letter or
+  locant after it; lipid chain notation, unit slashes and `ratio` names excluded), or a bracketed
+  comma list of two or more lipid chains. Every `Link` records `a_is_mixture` / `b_is_mixture` and
+  `a_mixture_key` / `b_mixture_key` (from the new `biomapper.harmonize.mixture_alternatives_key`:
+  the casefolded name without confidence markers, alternatives sorted within each bracket level).
+  `Link.mixture` is true when exactly one side is a mixture, or both are with different keys; two
+  names listing the same alternatives in any order are not flagged. `Link.needs_review` is now
+  `ambiguous`, `id_confidence_differs` or `mixture`; `Link.review_reasons` names which, and
+  `HarmonizationResult.mixture_links` lists them. The engine's flag is honoured when present:
+  `LipidResolution` gains `name_is_mixture` and `query_species_from_parenthetical` (engine
+  v1.3.1), and `MappingResult.name_is_mixture` carries it (a top-level field is also read; `None`
+  when absent). A `True` marks the name a mixture; a `False` does not clear the name rule.
+  `summary()` adds `n_mixture_links` (a reserved cohort label), and `harmonize_cohorts()` link
+  tables add `a_is_mixture`, `b_is_mixture`, `mixture` and `review_reasons` columns after the
+  existing ones.
 - **`HarmonizationResult.possible_missed`: unlinked entities that already carry a review
   signal.** An entity in no link whose mapping has a `chosen_kg_id_review` value, a `contradicted`
   certificate or a mixture name is listed as a `PossibleMiss` (cohort, key, name, chosen_kg_id,
@@ -46,10 +51,19 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `biomapper.harmonize.mapping_review_signals` returns one result's reasons. `summary()` adds
   `n_possible_missed` (a reserved cohort label) and a `possible_missed` count per cohort, and
   `harmonize_cohorts()` writes `possible_missed_<arm>.tsv` per arm. Why: on NECS x Xu et al. 2022
-  (engine v1.2.1, offline re-score 2026-11-06), both Monti et al. pairs BioMapper did not link
-  were silent misses; both now appear on the list (76 entities: 67 NECS, 9 Xu). With mixture
-  review, 373 links need no review and 372 of them share a compound ID; 200 need review, in 46
-  connected groups.
+  (engine v1.3.1, offline re-score 2026-11-06), the one Monti et al. pair BioMapper does not link
+  (`dihomo-linolenate (20:3n3 or n6)` with `dihomolinolenate (20:3n3 or 3n6)`) was a silent miss;
+  both sides now appear on the list (77 entities: 68 NECS, 9 Xu). With mixture review, 401 links
+  need no review and 400 of them share a compound ID; 99 need review, in 29 connected groups.
+- **`MappingResult.primary_curie` reads the server's `primary_curie`.** Engine v1.3.0+ derives it
+  from the chosen node; the client used to take `curies[0]`, the alphabetically first CURIE of any
+  annotator, which can be a losing hit (`dihomo-linolenate (20:3n3 or n6)`: `curies[0]` is
+  CHEBI:88670, dihomo-linoleate 20:2, while the chosen node is RM:0153916). The client falls back
+  to `curies[0]` only when the server does not send the field. New `MappingResult` fields
+  `curies_by_annotator` (`{annotator: [CURIEs]}`, from the server's `curies_assigned`) and
+  `curies_provided` expose which source produced each CURIE; both are empty from older servers.
+  `harmonize()` is unaffected: it links on `chosen_kg_id` and `kg_equivalent_ids`, never on
+  `primary_curie`.
 
 ## [1.6.2] - 2026-11-04
 

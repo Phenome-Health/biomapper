@@ -32,8 +32,10 @@ person should look at it even when the link is one-to-one. ``needs_review`` is `
 Every link also records whether each side's name is a MIXTURE label (``a_is_mixture`` /
 ``b_is_mixture``, see :func:`is_mixture_name`): a name that lists alternative compounds, such as
 ``butyrate/isobutyrate (4:0)`` or ``dihomo-linolenate (20:3n3 or n6)``. The measured compound is
-one of several, so a link from it is a review candidate even when it is one-to-one. ``mixture`` is
-either side being one.
+one of several. A link's ``mixture`` flag is set when the two sides DIFFER as mixtures: exactly one
+side is a mixture, or both are and list different alternatives (compared order-insensitively by
+:func:`mixture_alternatives_key`). Such a link is a review candidate even when it is one-to-one;
+two names listing the same alternatives are not flagged.
 
 Finally, :attr:`HarmonizationResult.possible_missed` lists the entities that ended up in NO link
 but whose mapping already carries a review signal (a ``chosen_kg_id_review`` value, a
@@ -132,7 +134,8 @@ def is_mixture_name(name: str) -> bool:
        (``androstenediol (3alpha, 17alpha) monosulfate``, ``bilirubin (z,z)``) does not count.
 
     The rule is written against Metabolon-style metabolite names. It reads the name only; an
-    engine-provided ``MappingResult.name_is_mixture`` is combined with it in :func:`harmonize`.
+    engine-provided mixture flag (``lipid_resolution.name_is_mixture``) is combined with it in
+    :func:`harmonize`.
     """
     text = normalize_name(name).casefold()
     if _MIXTURE_OR.search(text) or _MIXTURE_PLUS.search(text):
@@ -170,6 +173,87 @@ def _group_items(text: str) -> list[list[str]]:
     return [[item.strip() for item in g] for g in groups]
 
 
+# One separator between alternatives inside one bracket level (see mixture_alternatives_key):
+# "or" as a word (with any comma before it), " + ", or a "/" between compound names.
+_ALT_SEPARATOR = re.compile(
+    r"(?P<or>,?\s*(?:(?<=\s)|^)or\s+)"
+    r"|(?P<plus>\s\+\s)"
+    r"|(?P<slash>(?<=[a-z]{3})/(?=(?P<word>[a-z]+)|\d+[a-z]*-))"
+    r"|(?P<comma>,\s*)"
+)
+
+
+def mixture_alternatives_key(name: str) -> str:
+    """An order-insensitive form of ``name``'s alternatives, for comparing two mixture names.
+
+    The name is whitespace-normalized and casefolded, and its Metabolon identification-confidence
+    markers are removed (``id_confidence_differs`` reports those). Then, in every bracket level
+    separately (``(...)`` and ``[...]`` are treated alike), the text is split into alternatives at
+    the separators :func:`is_mixture_name` recognizes: ``or`` as a word (with a comma before it),
+    `` + ``, a ``/`` between compound names (same letter, locant and unit conditions, and no slash
+    in a ``ratio`` name), and commas when that level contains ``or`` or is a list of two or more
+    lipid chains. The alternatives are sorted and rejoined, nested levels first.
+
+    So ``dimethylarginine (sdma + adma)`` and ``dimethylarginine (adma + sdma)`` give the same key,
+    as do ``aconitate [cis or trans]`` and ``aconitate (trans or cis)``. Anything else that differs
+    (a spelling, an extra alternative, ``(20:3n3 or n6)`` vs ``(20:3n3 or 3n6)``) gives different
+    keys. Alternatives are only reordered within their own bracket level, so moving a shared
+    qualifier between levels (``butyrate/isobutyrate (4:0)`` vs ``isobutyrate (4:0)/butyrate``)
+    also gives different keys; that errs toward review.
+    """
+    text = _ID_CONFIDENCE_MARKER.sub("", normalize_name(name).casefold())
+    return _canonical_level(text, allow_slash=not re.search(r"\bratio\b", text))
+
+
+def _canonical_level(text: str, *, allow_slash: bool) -> str:
+    """Canonicalize one bracket level of ``text`` (see :func:`mixture_alternatives_key`)."""
+    # Replace each top-level bracket group with a placeholder holding its canonical form.
+    parts: list[str] = []
+    groups: list[str] = []
+    depth = 0
+    start = 0
+    for i, ch in enumerate(text):
+        if ch in "([":
+            if depth == 0:
+                start = i
+            depth += 1
+        elif ch in ")]" and depth:
+            depth -= 1
+            if depth == 0:
+                groups.append(
+                    "(" + _canonical_level(text[start + 1 : i], allow_slash=allow_slash) + ")"
+                )
+                parts.append(f"\x00{len(groups) - 1}\x00")
+        elif depth == 0:
+            parts.append(ch)
+    if depth:  # unbalanced: keep the unclosed remainder literally
+        parts.append(text[start:])
+    level = "".join(parts)
+
+    split_commas = bool(re.search(r"(?:^|\s)or\s", level))
+    if not split_commas:
+        comma_items = [item.strip() for item in level.split(",")]
+        split_commas = len(comma_items) >= 2 and all(_CHAIN_ITEM.match(i) for i in comma_items)
+    items: list[str] = []
+    pos = 0
+    for m in _ALT_SEPARATOR.finditer(level):
+        if m.group("comma") is not None and not split_commas:
+            continue
+        if m.group("slash") is not None and (
+            not allow_slash or (m.group("word") or "") in _SLASH_UNIT_WORDS
+        ):
+            continue
+        items.append(level[pos : m.start()])
+        pos = m.end()
+    items.append(level[pos:])
+
+    def restore(item: str) -> str:
+        return re.sub(r"\x00(\d+)\x00", lambda g: groups[int(g.group(1))], item).strip()
+
+    restored = [restore(item) for item in items]
+    return " | ".join(sorted(restored)) if len(restored) > 1 else restored[0]
+
+
 @dataclass(frozen=True)
 class Link:
     """One harmonized pair.
@@ -182,8 +266,10 @@ class Link:
     on each side's name (0, 1 or 2 asterisks; see :func:`id_confidence_marker`). :func:`harmonize`
     sets them from each result's ``query_name``; a link built without names keeps 0 on both sides.
     ``a_is_mixture`` / ``b_is_mixture`` say whether each side's name is a mixture label (see
-    :func:`is_mixture_name`, or the engine's ``name_is_mixture`` when it reports one); a link built
-    without names keeps ``False`` on both sides.
+    :func:`is_mixture_name`, or the engine's ``name_is_mixture`` flag when it reports one), and
+    ``a_mixture_key`` / ``b_mixture_key`` hold each mixture side's
+    :func:`mixture_alternatives_key` (empty for a side that is not a mixture). A link built without
+    names keeps ``False`` and ``""`` on both sides.
     """
 
     a_key: str
@@ -197,6 +283,8 @@ class Link:
     b_id_confidence: int = 0
     a_is_mixture: bool = False
     b_is_mixture: bool = False
+    a_mixture_key: str = ""
+    b_mixture_key: str = ""
 
     @property
     def name_only(self) -> bool:
@@ -224,12 +312,18 @@ class Link:
 
     @property
     def mixture(self) -> bool:
-        """True when either side's name is a mixture label (lists alternative compounds).
+        """True when the two sides differ as mixtures: the ``mixture`` review reason.
 
-        ``butyrate/isobutyrate (4:0)`` linked to ``butyrate (4:0)`` may be right, or the measured
-        peak may be isobutyrate, so a person should look even when the link is one-to-one.
+        Exactly one side is a mixture label (``butyrate/isobutyrate (4:0)`` vs ``butyrate (4:0)``:
+        the measured peak may be isobutyrate), OR both are and their alternative sets differ
+        (``a_mixture_key != b_mixture_key``, as in ``dihomo-linolenate (20:3n3 or n6)`` vs
+        ``dihomolinolenate (20:3n3 or 3n6)``). Two mixture names that list the same alternatives,
+        in any order (``dimethylarginine (sdma + adma)`` vs ``dimethylarginine (adma + sdma)``),
+        describe the same measurement and are not flagged.
         """
-        return self.a_is_mixture or self.b_is_mixture
+        if self.a_is_mixture != self.b_is_mixture:
+            return True
+        return self.a_is_mixture and self.a_mixture_key != self.b_mixture_key
 
     @property
     def review_reasons(self) -> tuple[str, ...]:
@@ -438,12 +532,23 @@ def mapping_review_signals(result: MappingResult) -> tuple[str, ...]:
 
 
 def _result_is_mixture(result: MappingResult) -> bool:
-    """The name rule, OR the engine's ``name_is_mixture`` when the engine sent one.
+    """The name rule, OR the engine's mixture flag when the engine sent one.
 
-    An engine ``True`` adds a mixture the name rule missed. An engine ``False`` does not clear the
-    name rule: a false mixture flag costs one review, a missed one hides a possible wrong match.
+    The engine reports it as ``lipid_resolution.name_is_mixture`` (engine v1.3.1+, lipid names
+    only); a top-level ``name_is_mixture`` is read too. An engine ``True`` adds a mixture the name
+    rule missed. An engine ``False`` does not clear the name rule: a false mixture flag costs one
+    review, a missed one hides a possible wrong match.
     """
-    return is_mixture_name(result.query_name) or result.name_is_mixture is True
+    lipid = result.lipid_resolution
+    return (
+        is_mixture_name(result.query_name)
+        or result.name_is_mixture is True
+        or (lipid is not None and lipid.name_is_mixture is True)
+    )
+
+
+def _mixture_key(result: MappingResult) -> str:
+    return mixture_alternatives_key(result.query_name) if _result_is_mixture(result) else ""
 
 
 @dataclass(frozen=True)
@@ -531,7 +636,7 @@ class HarmonizationResult:
 
     @property
     def mixture_links(self) -> tuple[Link, ...]:
-        """Links where either side's name is a mixture label."""
+        """Links whose sides differ as mixtures (see :attr:`Link.mixture`)."""
         return tuple(lk for lk in self.links if lk.mixture)
 
     @property
@@ -773,8 +878,9 @@ def harmonize(
         errored in ``a_errors`` / ``b_errors``. Neither is silently dropped. Each link carries its
         partner counts, each side's identification-confidence marker and whether each side's
         name is a mixture label. ``ambiguous_links`` (either side has several partners), links
-        whose names carry different markers (``id_confidence_differs``) and links with a mixture
-        name on either side (``mixture``) together form ``review_links``; every other link is a
+        whose names carry different markers (``id_confidence_differs``) and links whose sides
+        differ as mixtures (``mixture``: one side only, or different alternative sets) together
+        form ``review_links``; every other link is a
         confident match. All links are still returned. ``possible_missed`` lists the entities in
         no link whose mapping carries a review signal (see :class:`PossibleMiss`).
 
@@ -818,6 +924,8 @@ def harmonize(
             b_id_confidence=id_confidence_marker(b_names[b]),
             a_is_mixture=_result_is_mixture(a_by_key[a]),
             b_is_mixture=_result_is_mixture(b_by_key[b]),
+            a_mixture_key=_mixture_key(a_by_key[a]),
+            b_mixture_key=_mixture_key(b_by_key[b]),
         )
         for (a, b) in sorted(bases)
     )
