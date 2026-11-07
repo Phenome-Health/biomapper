@@ -41,7 +41,15 @@ def test_diff_by_key_pair() -> None:
 
 
 @pytest.mark.parametrize(
-    "label", ["n_links", "links_by_basis", "n_one_to_one_links", "n_ambiguous_links"]
+    "label",
+    [
+        "n_links",
+        "links_by_basis",
+        "n_one_to_one_links",
+        "n_ambiguous_links",
+        "n_id_confidence_differs",
+        "n_needs_review",
+    ],
 )
 def test_reserved_labels_raise_before_any_mapping(label: str) -> None:
     mapper = FakeMapper(lambda n, i, m, t: mr(n))
@@ -172,10 +180,21 @@ def test_write_to_an_override_path_and_no_absolute_paths_in_json(tmp_path) -> No
     links = (out / "links_identifier.tsv").read_text().splitlines()
     assert links[0].split("\t") == [
         "ukbb_key", "arivale_key", "basis", "bases", "shared_identifiers",
-        "a_partners", "b_partners", "one_to_one",
+        "a_partners", "b_partners", "one_to_one", "a_id_confidence", "b_id_confidence",
+        "id_confidence_differs", "needs_review", "a_is_mixture", "b_is_mixture", "mixture",
+        "review_reasons",
     ]
     assert len(links) == 3
-    assert all(row.split("\t")[5:] == ["1", "1", "True"] for row in links[1:])
+    assert all(
+        row.split("\t")[5:]
+        == ["1", "1", "True", "0", "0", "False", "False", "False", "False", "False", ""]
+        for row in links[1:]
+    )
+    for arm in ("names_only", "identifier"):
+        missed = (out / f"possible_missed_{arm}.tsv").read_text().splitlines()
+        assert missed[0].split("\t") == [
+            "cohort", "key", "name", "chosen_kg_id", "resolved", "reasons",
+        ]
     queue = (out / "review_queue.tsv").read_text().splitlines()
     assert queue[0].split("\t") == [
         "cohort", "key", "name", "vocabulary", "code", "name_entry", "code_entry", "status",

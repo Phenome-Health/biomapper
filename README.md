@@ -92,7 +92,7 @@ result = map_entity("L-Histidine")
 
 print(result.resolved)          # True
 print(result.primary_curie)     # RM:0129894
-print(result.chosen_kg_id)      # CHEBI:15971
+print(result.chosen_kg_id)      # RM:0129894
 print(result.chosen_kg_id_review)  # None  (or 'divergent_refmet' when a ChEBI conflict is flagged for review)
 print(result.confidence_score)  # 2.489
 print(result.confidence_tier)   # high  (≥2.0)
@@ -360,6 +360,84 @@ entities landed on one entry, so the pair is a review candidate rather than a co
 On NECS x Xu et al. 2022 scored against Metabolon compound IDs, one-to-one links were 397 of 398
 correct (99.7%) versus 439 of 575 (76.3%) for all links.
 
+**Identification-confidence markers** (unreleased). Metabolon marks how a compound was identified
+with asterisks on its name: no asterisk means confirmed with an authentic chemical standard, `*`
+means identified with confidence but not confirmed with a standard, and `**` means reasonably
+identified without an available standard. Every link records each side's marker as
+`a_id_confidence` / `b_id_confidence` (0, 1 or 2, read from each result's `query_name`; see
+`biomapper.harmonize.id_confidence_marker`), and `link.id_confidence_differs` is true when they
+differ, as in `glyco-beta-muricholate**` vs `glyco-beta-muricholate`. A marker is a run of one or
+two asterisks that directly follows a non-space character and either ends the name or comes right
+before ` (` (`1-palmitoyl-gpi* (16:0)`); any other asterisk is ignored, and when a name carries
+two markers the longer one counts (`1-arachidonoyl-GPC* (20:4)*` is `*`). Names without markers
+are always 0, so panels that do not use Metabolon names are unaffected; a marked name linked to an
+unmarked one is flagged. `link.needs_review` is `ambiguous` or `id_confidence_differs`;
+`ambiguous` and `one_to_one_links` keep their meaning. `report.review_links` lists the links that
+need review, every other link is a confident match, and `summary()` adds `n_id_confidence_differs`
+and `n_needs_review`. Name linking compares names with their asterisks intact, so a pair that
+differs only in its marker links by identifier, never by name. On NECS x Xu et al. 2022 (engine
+v1.2.1, 2026-11-05), 390 links need no review and 389 of them share a Metabolon compound ID;
+before this flag the confident set was 399 links, 9 of them with differing markers.
+
+**Mixture names** (unreleased). A name that lists alternative compounds, such as
+`butyrate/isobutyrate (4:0)`, describes a measurement that may be either compound. Linking it to
+a name that does not list the same alternatives is a review candidate even when the link is
+one-to-one. Every link records `a_is_mixture` / `b_is_mixture`.
+`biomapper.harmonize.is_mixture_name` applies this rule to the whitespace-normalized, casefolded
+name; any one of these makes it a mixture:
+
+1. `or` as a word between spaces: `linolenate [alpha or gamma; (18:3n3 or 6)]`,
+   `dihomo-linolenate (20:3n3 or n6)`.
+2. `+` with a space on each side: `dimethylarginine (sdma + adma)`,
+   `(n(1) + n(8))-acetylspermidine` (but not `NAD+`).
+3. `/` with at least three letters right before it and a letter or a locant (`2-`, `5alpha-`)
+   right after it: `butyrate/isobutyrate (4:0)`, `2-hydroxybutyrate/2-hydroxyisobutyrate`. Lipid
+   chain notation (`PC 16:0/18:1`, `d18:1/17:0`) has a digit or `)` before the slash and never
+   counts; neither does a slash before a unit word (`mmol/mol`) or any slash in a name containing
+   the word `ratio`.
+4. A bracketed group that is a comma-separated list of two or more lipid chains, Metabolon's
+   multi-isomer names: `sphingomyelin (d18:1/17:0, d17:1/18:0, d19:1/16:0)`. Other comma lists
+   (`androstenediol (3alpha, 17alpha) monosulfate`, `bilirubin (z,z)`) do not count.
+
+`link.mixture` (the `mixture` review reason) is true when the two sides differ as mixtures:
+
+- exactly one side is a mixture (`butyrate/isobutyrate (4:0)` vs `butyrate (4:0)`), or
+- both are, and they list different alternatives (`dihomo-linolenate (20:3n3 or n6)` vs
+  `dihomolinolenate (20:3n3 or 3n6)`).
+
+Two mixture names listing the same alternatives in any order are not flagged:
+`dimethylarginine (sdma + adma)` vs `dimethylarginine (adma + sdma)`, or the same Metabolon
+multi-isomer string on both sides. The comparison uses `biomapper.harmonize.mixture_alternatives_key`
+(stored on the link as `a_mixture_key` / `b_mixture_key`): the casefolded name without its
+identification-confidence markers, with the alternatives inside each bracket level (`(...)` and
+`[...]` alike) sorted. Alternatives are only reordered within their own bracket level, so moving a
+shared qualifier between levels (`butyrate/isobutyrate (4:0)` vs `isobutyrate (4:0)/butyrate`)
+still counts as different, which errs toward review.
+
+The engine's own mixture flag is honoured too: engine v1.3.1 reports
+`lipid_resolution.name_is_mixture` on lipid names (a top-level `name_is_mixture` is also read if a
+server sends one). A `True` marks the name a mixture; a `False` does not override the name rule,
+and a server without the field changes nothing. `link.needs_review` is now `ambiguous`,
+`id_confidence_differs` or `mixture`; `link.review_reasons` names which, `report.mixture_links`
+lists the mixture links, and `summary()` adds `n_mixture_links`. The rule is written against
+Metabolon-style metabolite names.
+
+**Possible missed matches** (unreleased). `report.possible_missed` lists every entity that ended
+up in no link although its mapping already carries a review signal, so a reviewer sees it next to
+the review links instead of it disappearing. Each entry (`PossibleMiss`) has the cohort label, key,
+name, `chosen_kg_id`, whether it resolved, and its `reasons`: the mapping's `chosen_kg_id_review`
+value (`divergent_refmet`, `conflict_no_structure`), `certificate_contradicted`, and/or
+`mixture` (per entity: the entity's own name is a mixture). Errored entities are never listed. `report.a_possible_missed` / `b_possible_missed` split
+it by side, and `summary()` adds `n_possible_missed` plus a `possible_missed` count in each cohort
+block. Entries are listed per cohort; nothing pairs them across cohorts.
+
+On NECS x Xu et al. 2022 (engine v1.3.1, offline re-score 2026-11-06), 6 links are mixture
+reviews and 2 of them are flagged for that reason alone (`butyrate/isobutyrate (4:0)` with
+`butyrate (4:0)`, and the two linolenate spellings; both share a Metabolon compound ID). 401 links
+need no review and 400 of them share a compound ID; 99 links need review. 77 entities are listed
+as possible misses (68 NECS, 9 Xu), including both sides of the one Monti et al. pair BioMapper
+does not link (`dihomo-linolenate (20:3n3 or n6)` with `dihomolinolenate (20:3n3 or 3n6)`).
+
 ```python
 from biomapper import map_entities
 from biomapper.harmonize import harmonize
@@ -440,12 +518,18 @@ What it does:
    `diff` (pairs found only by names, only with identifiers, by both), one-to-one and ambiguous
    link counts per arm (`n_one_to_one_links` / `n_ambiguous_links`, as in `harmonize()`), link
    bases, warnings, excluded rows (blank names), and pins. Each arm's link table carries
-   `a_partners`, `b_partners` and a `one_to_one` flag, so ambiguous links can be reviewed.
+   `a_partners`, `b_partners` and a `one_to_one` flag, so ambiguous links can be reviewed, plus
+   `a_id_confidence`, `b_id_confidence`, `id_confidence_differs`, `needs_review`,
+   `a_is_mixture`, `b_is_mixture`, `mixture` and `review_reasons`; each arm's summary adds
+   `n_id_confidence_differs`, `n_mixture_links`, `n_needs_review` and `n_possible_missed`. Each
+   arm also writes `possible_missed_<arm>.tsv` (cohort, key, name, chosen_kg_id, resolved,
+   reasons).
 
 **Output by default.** Results are written to `biomapper_runs/harmonize_cohorts_<UTC stamp>/`
 under the current directory (override with `output_dir=`; `save=False` to skip;
 `report.write(path)` any time): mapping results per arm and cohort, written as each arm finishes
-so a failure keeps finished work, link tables per arm, `diff.tsv`, `review_queue.tsv`,
+so a failure keeps finished work, link and possible-missed tables per arm, `diff.tsv`,
+`review_queue.tsv`,
 `settings.json` and `summary.json`. Nothing beyond what you passed in is written, and input files
 are recorded by name and SHA-256, never by absolute path.
 
@@ -569,7 +653,9 @@ job ownership uses OS file locks, which network filesystems may not honor across
 |---|---|---|
 | `query_name` | `str` | Name submitted to the API |
 | `resolved` | `bool` | Whether any identifier was returned |
-| `primary_curie` | `str \| None` | First CURIE in the response |
+| `primary_curie` | `str \| None` | The CURIE to report: the server's `primary_curie` (engine v1.3.0+), which identifies `chosen_kg_id`'s node. Falls back to the first of the response's `curies` (alphabetical, so possibly a losing annotator hit) only on an older server that does not send it |
+| `curies_by_annotator` | `dict[str, list[str]]` | Which annotator produced each assigned CURIE, `{annotator: [CURIEs]}` (server `curies_assigned`, engine v1.3.0+; empty from older servers) |
+| `curies_provided` | `list[str]` | CURIEs normalized from the identifiers you supplied (engine v1.3.0+; empty from older servers) |
 | `chosen_kg_id` | `str \| None` | Resolver-selected knowledge graph ID |
 | `chosen_kg_id_review` | `str \| None` | Review flag for source-weighted small-molecule ChEBI conflicts: `"divergent_refmet"`, `"conflict_no_structure"`, or `None` |
 | `confidence_score` | `float \| None` | Highest score across annotators |
