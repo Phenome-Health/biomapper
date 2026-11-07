@@ -5,6 +5,8 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.6.3] - 2026-11-06
+
 ### Added
 
 - **`harmonize()` flags links whose names differ in Metabolon identification-confidence markers.**
@@ -405,7 +407,7 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - Run manifests record `monti_s03_derived` per pair alongside the published overlap.
 
-**Published to PyPI:** 0.1.0 through 1.4.0, and 1.5.2 through 1.5.5. Entries tagged *(not published)* were
+**Published to PyPI:** 0.1.0 through 1.4.0, and 1.5.2 through 1.6.2. Entries tagged *(not published)* were
 version bumps that landed in this repository but were never uploaded to the release index, so
 `pip install biomapper==<that version>` will not resolve. This matters for any claim about which
 release first contained a module: the source tree and the PyPI index diverge across the 1.5.x
