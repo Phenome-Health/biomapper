@@ -1,0 +1,208 @@
+{
+ "args": {
+  "hajjar": 100,
+  "necs": 100,
+  "limit": 0,
+  "seed": 20261108,
+  "out": "spike_results/weak_candidates_20261109T020458Z"
+ },
+ "git_commit": "0ca20dbceb20a0e008dfada9c4941917d784e0be",
+ "pins": {
+  "timestamp_utc": "2026-11-09T02:04:58.640416+00:00",
+  "biomapper_version": "1.6.3",
+  "api": {
+   "base_url": "https://biomapper.expertintheloop.io/api/v1",
+   "status": "healthy",
+   "self_reported_version": "0.1.0",
+   "error": null,
+   "self_reported_version_label": "self-reported, known stale",
+   "engine_release": "unavailable"
+  },
+  "kestrel": {
+   "url": "https://kestrel.krakenkg.com/api",
+   "kestrel_version": "0.5.0",
+   "kg_build": {
+    "kg_version": "2.3.0",
+    "kraken_package_version": "2.2.0",
+    "biolink_version": "4.2.5",
+    "build_timestamp": "2026-09-25T00:34:42.623612+00:00",
+    "git_commit": "3dd08a5b7b17e320ceb0c0091e09b781d4d90242",
+    "sources": [
+     "babel",
+     "bio-age",
+     "bio-bmi",
+     "cdes",
+     "ctkg",
+     "dakg",
+     "kg2",
+     "lipidmaps",
+     "loinc",
+     "long-covid",
+     "microbiome-kg",
+     "multiomics-kg",
+     "ncbigene",
+     "pgs-catalog",
+     "refmet",
+     "robokop",
+     "translator-kg-open",
+     "umls"
+    ],
+    "source_versions": {
+     "babel": "2026jul22",
+     "bio-age": "2019",
+     "bio-bmi": "2023",
+     "cdes": "accessed_2026-07-29",
+     "ctkg": "4.1.7",
+     "dakg": "0.5.7",
+     "kg2": "2.10.2",
+     "lipidmaps": "accessed_2026-08-07",
+     "loinc": "2.82",
+     "long-covid": "received_2026-09-17",
+     "microbiome-kg": "2.1.0",
+     "multiomics-kg": "2.1.0",
+     "ncbigene": "accessed_2026-08-31",
+     "pgs-catalog": "2026-07-29",
+     "refmet": "accessed_2026-08-07",
+     "robokop": "june2025",
+     "translator-kg-open": "2026_07_19",
+     "umls": "2025AA"
+    },
+    "kg_label": null,
+    "steps_run": {
+     "harmonize": false,
+     "integrate": true,
+     "postprocess": false
+    },
+    "build_duration_minutes": 136.2,
+    "node_count": null,
+    "edge_count": null
+   },
+   "error": null,
+   "label": "Kestrel's own /health; the graph the API used is assumed, not verified, to be this build"
+  }
+ },
+ "run": {
+  "rows": 200,
+  "pass1_s": 152.4,
+  "total_s": 232.0,
+  "datasets": {
+   "hajjar": {
+    "card_source_sha256": "a58ca331e27e4f56ba921a3168c7ee3488fb30c7ea42d5d321e323224c807c50",
+    "route": {
+     "route": "fetched",
+     "source_url": "https://static-content.springer.com/esm/art%3A10.1007%2Fs11306-026-02404-w/MediaObjects/11306_2026_2404_MOESM1_ESM.docx",
+     "source_sha256": "a58ca331e27e4f56ba921a3168c7ee3488fb30c7ea42d5d321e323224c807c50",
+     "source_bytes": 916657,
+     "expected_sha256": "a58ca331e27e4f56ba921a3168c7ee3488fb30c7ea42d5d321e323224c807c50"
+    },
+    "rows_with_gold": 100
+   },
+   "necs": {
+    "card_source_sha256": "365b7cf304529e7cfa1619134d9d11cc9dade28386e9ea3e8b2dc6bc71eb8457",
+    "route": {
+     "route": "fetched",
+     "source_url": "https://static-content.springer.com/esm/art%3A10.1007%2Fs11357-026-02174-2/MediaObjects/11357_2026_2174_MOESM5_ESM.xlsx",
+     "source_sha256": "365b7cf304529e7cfa1619134d9d11cc9dade28386e9ea3e8b2dc6bc71eb8457",
+     "source_bytes": 301809,
+     "expected_sha256": null
+    },
+    "rows_with_gold": 839
+   }
+  }
+ },
+ "n_rows": 200,
+ "n_weak": 41,
+ "weak_share": 0.205,
+ "triggers": {
+  "unavailable": {
+   "n": 11,
+   "hit5_strict": 0.455,
+   "hit10_strict": 0.545,
+   "hit25_strict": 0.636,
+   "hit5_lenient_upper_bound": 0.455,
+   "hit10_lenient_upper_bound": 0.636,
+   "hit25_lenient_upper_bound": 0.727,
+   "engine_correct_strict": 0.0,
+   "rescue_hit10_strict_among_engine_wrong": 0.545,
+   "n_engine_wrong": 11,
+   "mismatch_choice_rate_warm": 0.0,
+   "mismatch_cert_rate_warm": 0.0,
+   "candidate_status": {
+    "present": 11
+   },
+   "median_remap_latency_s": 0.54
+  },
+  "contradicted": {
+   "n": 6,
+   "hit5_strict": 0.833,
+   "hit10_strict": 1.0,
+   "hit25_strict": 1.0,
+   "hit5_lenient_upper_bound": 1.0,
+   "hit10_lenient_upper_bound": 1.0,
+   "hit25_lenient_upper_bound": 1.0,
+   "engine_correct_strict": 0.5,
+   "rescue_hit10_strict_among_engine_wrong": 1.0,
+   "n_engine_wrong": 3,
+   "mismatch_choice_rate_warm": 0.0,
+   "mismatch_cert_rate_warm": 0.0,
+   "candidate_status": {
+    "present": 6
+   },
+   "median_remap_latency_s": 0.38
+  },
+  "uncorroborated": {
+   "n": 24,
+   "hit5_strict": 0.667,
+   "hit10_strict": 0.792,
+   "hit25_strict": 0.833,
+   "hit5_lenient_upper_bound": 0.75,
+   "hit10_lenient_upper_bound": 0.875,
+   "hit25_lenient_upper_bound": 0.917,
+   "engine_correct_strict": 0.75,
+   "rescue_hit10_strict_among_engine_wrong": 0.833,
+   "n_engine_wrong": 6,
+   "mismatch_choice_rate_warm": 0.0,
+   "mismatch_cert_rate_warm": 0.0,
+   "candidate_status": {
+    "present": 24
+   },
+   "median_remap_latency_s": 0.64
+  },
+  "ALL_WEAK": {
+   "n": 41,
+   "hit5_strict": 0.634,
+   "hit10_strict": 0.756,
+   "hit25_strict": 0.805,
+   "hit5_lenient_upper_bound": 0.707,
+   "hit10_lenient_upper_bound": 0.829,
+   "hit25_lenient_upper_bound": 0.878,
+   "engine_correct_strict": 0.512,
+   "rescue_hit10_strict_among_engine_wrong": 0.7,
+   "n_engine_wrong": 20,
+   "mismatch_choice_rate_warm": 0.0,
+   "mismatch_cert_rate_warm": 0.0,
+   "candidate_status": {
+    "present": 41
+   },
+   "median_remap_latency_s": 0.54
+  }
+ },
+ "go_criteria": "any trigger with n>=5, hit@10 strict >= 0.30 and warm choice-mismatch <= 0.20",
+ "go_triggers": [
+  "contradicted",
+  "uncorroborated"
+ ],
+ "engine_wrong_strict": 28,
+ "engine_wrong_by_trigger": {
+  "None": 8,
+  "unavailable": 11,
+  "contradicted": 3,
+  "uncorroborated": 6
+ },
+ "verdict": "GO",
+ "limitations": [
+  "mismatch measured on the warm path only: the client cannot force a cold engine cache",
+  "lenient (InChIKey connectivity block) hits are an upper bound; the block is not tautomer- or charge-invariant",
+  "NECS gold carries ~5% InChIKey errors (see run_necs docstring)"
+ ]
+}

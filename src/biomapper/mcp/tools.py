@@ -40,7 +40,9 @@ SERVER_INSTRUCTIONS = (
     "a TSV/CSV file and call map_file, which runs a resumable background job; poll job_status "
     "every minute or so rather than mapping entities one by one. Results report status "
     "'resolved', 'unresolved', 'refused', or 'error'; an error is a failed call, never a "
-    "confirmed no-match."
+    "confirmed no-match. Weak results carry weak=true and a ref: get_candidates returns the "
+    "engine's alternatives for up to 3 refs (the engine is usually right on uncorroborated "
+    "rows), and record_suggestion records your pick, which is never a BioMapper resolution."
 )
 
 MAP_ENTITY_DESCRIPTION = (
@@ -97,6 +99,19 @@ class EntityResult(BaseModel):
     reason: str | None = Field(default=None, description="Why unresolved, refused, or errored")
     kg_equivalent_ids: dict[str, list[str]] = Field(default_factory=dict)
     error: str | None = None
+    # 1.7.0. Present only on weak rows: a strong row serializes exactly as it did in 1.6.3.
+    weak: bool | None = Field(
+        default=None,
+        exclude_if=lambda v: v is None,
+        description="true when the result is weak (unresolved, refused, uncorroborated, "
+        "contradicted, or unavailable for a small molecule). Absent on strong rows.",
+    )
+    ref: str | None = Field(
+        default=None,
+        exclude_if=lambda v: v is None,
+        description="Opaque reference for a weak row; pass it to get_candidates. Absent on "
+        "strong rows.",
+    )
 
 
 class MapEntityResult(BaseModel):
@@ -156,6 +171,45 @@ def entity_status(result: MappingResult) -> EntityStatus:
     if result.chosen_kg_id or result.resolved:
         return "resolved"
     return "unresolved"
+
+
+WEAK_STATUSES = frozenset({"unresolved", "refused"})
+WEAK_CERTIFICATES = frozenset({"uncorroborated", "contradicted"})
+# The Unit 0 spike (2026-11-09) found certificate ``unavailable`` hid engine errors on small
+# molecules (0 of 11 engine-right), so it is weak there. For genes and proteins the certificate is
+# structural and ``unavailable`` is routine, so it is not.
+SMALL_MOLECULE_TYPES = frozenset({"smallmolecule", "small_molecule", "small molecule",
+                                  "metabolite", "lipid"})
+
+
+def is_small_molecule(entity_type: str) -> bool:
+    """Whether a request's entity type is a small molecule, by Biolink name or common alias."""
+    value = (entity_type or "").strip().lower()
+    if value.startswith("biolink:"):
+        value = value[len("biolink:"):]
+    return value in SMALL_MOLECULE_TYPES
+
+
+def weak_trigger(result: MappingResult, entity_type: str) -> str | None:
+    """Why a result is weak (the trigger name), or ``None`` for a strong row or a failed call.
+
+    An error is a failed call, not a weak answer, so it is never weak.
+    """
+    status = entity_status(result)
+    if status == "error":
+        return None
+    if status in WEAK_STATUSES:
+        return status
+    certificate = result.certificate.state if result.certificate is not None else None
+    if certificate in WEAK_CERTIFICATES:
+        return certificate
+    if certificate == "unavailable" and is_small_molecule(entity_type):
+        return "unavailable"
+    return None
+
+
+def is_weak(result: MappingResult, entity_type: str) -> bool:
+    return weak_trigger(result, entity_type) is not None
 
 
 def _trim_equivalents(ids: dict[str, list[str]]) -> dict[str, list[str]]:

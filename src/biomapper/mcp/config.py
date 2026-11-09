@@ -16,7 +16,13 @@ from pathlib import Path
 
 from biomapper._provenance import DEFAULT_KESTREL_URL
 from biomapper.client import DEFAULT_BASE_URL
-from biomapper.mcp.gate import DEFAULT_GATE_WAIT_S, DEFAULT_LOOP_LIMIT, DEFAULT_LOOP_WINDOW_S
+from biomapper.mcp.gate import (
+    DEFAULT_CANDIDATE_BUDGET,
+    DEFAULT_CANDIDATE_WINDOW_S,
+    DEFAULT_GATE_WAIT_S,
+    DEFAULT_LOOP_LIMIT,
+    DEFAULT_LOOP_WINDOW_S,
+)
 
 DEFAULT_HOME = Path("~/.cache/biomapper/mcp")
 SECONDS_PER_ENTITY_SEED = 4.4
@@ -46,6 +52,16 @@ class ServerConfig:
     batch_cap: int = 5
     loop_limit: int = DEFAULT_LOOP_LIMIT
     loop_window_s: float = DEFAULT_LOOP_WINDOW_S
+
+    # Candidate review (1.7.0). Each ref is one re-map with Kestrel passthrough, about 0.5-1 s on a
+    # warm cache (Unit 0 spike) but up to a full map on a cold one, so at most 3 per call keeps a
+    # call inside the deadline, and the budget is its own window so it never starves lookups.
+    candidates_default_n: int = 10
+    candidates_max_n: int = 25
+    candidates_refs_per_call: int = 3
+    candidate_budget: int = DEFAULT_CANDIDATE_BUDGET
+    candidate_window_s: float = DEFAULT_CANDIDATE_WINDOW_S
+    ref_ttl_s: float = 30 * 24 * 3600.0
 
     # File jobs. 300 s matches cohorts.DEFAULT_TIMEOUT_S; chunks of 5 so an interactive call waits
     # at most one chunk for the gate.

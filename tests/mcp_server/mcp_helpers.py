@@ -93,3 +93,54 @@ def batch_echo(inflight: InFlight, delay: float = 0.0, resolve: bool = True) -> 
         return httpx.Response(200, json=batch_response(entries))
 
     return handler
+
+
+# ---------------------------------------------------------------------------
+# Weak rows and candidates (1.7.0)
+# ---------------------------------------------------------------------------
+
+
+def entity_result(
+    name: str,
+    *,
+    chosen: str | None = "CHEBI:15971",
+    cert: str | None = "corroborated",
+    refusal: str | None = None,
+    equivalents: dict[str, list[str]] | None = None,
+    kestrel: list[dict[str, Any]] | None = None,
+    error: str | None = None,
+) -> dict[str, Any]:
+    """One engine ``result`` object, as /map/entity wraps it and /map/batch lists it."""
+    out: dict[str, Any] = {
+        "name": name,
+        "curies": [chosen] if chosen else [],
+        "chosen_kg_id": chosen,
+        "primary_curie": chosen,
+        "kg_equivalent_ids": equivalents if equivalents is not None else (
+            {chosen.split(":")[0]: [chosen.split(":")[1]]} if chosen else {}
+        ),
+        "assigned_ids": {},
+        "error": error,
+    }
+    if cert is not None or refusal is not None:
+        out["resolution_certificate"] = {"state": cert or "not_applicable"}
+        if refusal is not None:
+            out["resolution_certificate"]["refusal_reason"] = refusal
+    if kestrel is not None:
+        out["kestrel_results"] = kestrel
+    return out
+
+
+def entity_response(name: str, **kw: Any) -> dict[str, Any]:  # noqa: ANN401
+    return {"result": entity_result(name, **kw), "metadata": {}}
+
+
+def kestrel_block(
+    endpoint: str, rows: list[dict[str, Any]], error: str | None = None
+) -> dict[str, Any]:
+    return {"endpoint": endpoint, "request": {"search_text": "x", "limit": len(rows)},
+            "rows": rows, "error": error}
+
+
+def kestrel_row(curie: str, score: float, name: str = "", **kw: Any) -> dict[str, Any]:  # noqa: ANN401
+    return {"id": curie, "score": score, "name": name or curie, **kw}

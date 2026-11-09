@@ -527,6 +527,7 @@ async def test_rerun_and_new_output_path_create_fresh_jobs(router, tmp_path, dat
         calls_before = inflight.calls
         (data / "other.tsv").unlink()
         (data / "other.provenance.json").unlink()
+        (data / "other.weak.tsv").unlink()
         rerun = await submit(client, src, output_path=str(data / "other.tsv"), rerun=True)
         await wait_state(client, rerun["job_id"], "complete")
     assert inflight.calls == calls_before + 1, "rerun must re-map instead of reusing the cache"
@@ -644,6 +645,7 @@ async def test_a_torn_cache_line_is_truncated_and_only_that_work_is_redone(
     (jdir / "job.json").write_text(json.dumps(j))
     (data / "p.biomapper.tsv").unlink()
     (data / "p.biomapper.provenance.json").unlink()
+    (data / "p.biomapper.weak.tsv").unlink()
     calls_before = inflight.calls
     async with Client(build_server(config)) as client:
         await wait_state(client, job["job_id"], "complete")
@@ -1051,3 +1053,133 @@ async def test_the_api_health_probe_waits_for_the_request_gate(tmp_path) -> None
         pins = await asyncio.wait_for(task, 5)
     assert api_route.call_count == 1
     assert pins["api"]["status"] == "healthy"
+
+
+# ---------------------------------------------------------------------------
+# 1.7.0: weak.tsv sidecar and job refs
+# ---------------------------------------------------------------------------
+
+
+def weak_batch(weak_names: set[str]):
+    """A /map/batch side effect: names in ``weak_names`` come back uncorroborated."""
+    from tests.mcp_server.mcp_helpers import entity_result
+
+    async def handler(request):
+        names = [e["name"] for e in json.loads(request.content)["entities"]]
+        rows = [
+            entity_result(n, cert="uncorroborated" if n in weak_names else "corroborated")
+            for n in names
+        ]
+        return httpx.Response(200, json=batch_response(rows))
+
+    return handler
+
+
+async def test_weak_rows_go_to_a_weak_tsv_with_job_refs(router, tmp_path, data) -> None:
+    from biomapper.mcp.references import RefStore, parse_ref
+
+    router.post(f"{API}/map/batch").mock(side_effect=weak_batch({"b", "d"}))
+    src = write_tsv(data / "panel.tsv", ["a", "b", "c", "d", "b"])
+    config = cfg(tmp_path, data)
+    async with Client(build_server(config)) as client:
+        job = await submit(client, src)
+        await wait_state(client, job["job_id"], "complete")
+    main = read_tsv(data / "panel.biomapper.tsv")
+    assert list(main[0]) == [
+        "key", "name", "identifiers_sent", "status", "chosen_kg_id", "primary_curie", "resolved",
+        "confidence_score", "confidence_tier", "refusal_reason", "kg_equivalent_ids", "error",
+    ]
+    weak = read_tsv(data / "panel.biomapper.weak.tsv")
+    assert [r["name"] for r in weak] == ["b", "d", "b"]
+    assert [r["key"] for r in weak] == ["2", "4", "5"]
+    assert {r["weak_trigger"] for r in weak} == {"uncorroborated"}
+    assert weak[0]["ref"] == weak[2]["ref"], "one ref per unique entity"
+    assert weak[0]["ref"] != weak[1]["ref"]
+    kind, jid = parse_ref(weak[0]["ref"])
+    assert (kind, jid) == ("job", job["job_id"])
+    rec = RefStore(config.home).load(weak[0]["ref"])
+    assert rec.source == "job" and rec.job_id == job["job_id"]
+    assert rec.query.entity_type == ST and rec.query.name == "b"
+    assert rec.pins.kg_build.startswith("2.3.0")
+    jdir = config.home / "jobs" / job["job_id"] / "refs"
+    assert (jdir.stat().st_mode & 0o777) == 0o700
+
+
+async def test_a_job_with_no_weak_rows_still_writes_a_header_only_weak_tsv(
+    router, tmp_path, data
+) -> None:
+    router.post(f"{API}/map/batch").mock(side_effect=weak_batch(set()))
+    src = write_tsv(data / "p.tsv", ["a"])
+    async with Client(build_server(cfg(tmp_path, data))) as client:
+        job = await submit(client, src)
+        await wait_state(client, job["job_id"], "complete")
+    assert read_tsv(data / "p.biomapper.weak.tsv") == []
+    assert (data / "p.biomapper.weak.tsv").read_text().startswith("key\tname\t")
+
+
+async def test_an_existing_weak_tsv_refuses_the_job_at_submit(router, tmp_path, data) -> None:
+    inflight = InFlight()
+    router.post(f"{API}/map/batch").mock(side_effect=batch_echo(inflight))
+    src = write_tsv(data / "p.tsv", ["a"])
+    (data / "p.biomapper.weak.tsv").write_text("mine\n")
+    async with Client(build_server(cfg(tmp_path, data))) as client:
+        res = await client.call_tool("map_file", {"path": str(src), "name_column": "name",
+                                                  "entity_type": ST})
+    assert res.is_error and "p.biomapper.weak.tsv" in res.content[0].text
+    assert inflight.calls == 0
+    assert (data / "p.biomapper.weak.tsv").read_text() == "mine\n"
+
+
+async def test_weak_tsv_follows_the_output_name_rule(router, tmp_path, data) -> None:
+    router.post(f"{API}/map/batch").mock(side_effect=weak_batch({"a"}))
+    src = write_tsv(data / "p.tsv", ["a"])
+    async with Client(build_server(cfg(tmp_path, data))) as client:
+        job = await submit(client, src, output_path="custom.tsv")
+        await wait_state(client, job["job_id"], "complete")
+    assert (data / "custom.weak.tsv").is_file()
+    assert len(read_tsv(data / "custom.weak.tsv")) == 1
+
+
+def _rewind_to_interrupted_final_write(config, data: Path, job_id: str) -> None:
+    """The state a crash between placing weak.tsv and the main output leaves behind."""
+    (data / "p.biomapper.tsv").unlink()
+    (data / "p.biomapper.provenance.json").unlink()
+    job_file = config.home / "jobs" / job_id / "job.json"
+    record = json.loads(job_file.read_text())
+    assert record["weak_sha256"], "ownership must be recorded with weak.tsv"
+    record.update(state="running", completed_utc=None)
+    job_file.write_text(json.dumps(record))
+
+
+async def test_a_final_write_interrupted_after_weak_tsv_recovers_on_restart(
+    router, tmp_path, data
+) -> None:
+    router.post(f"{API}/map/batch").mock(side_effect=weak_batch({"b"}))
+    src = write_tsv(data / "p.tsv", ["a", "b"])
+    config = cfg(tmp_path, data)
+    async with Client(build_server(config)) as client:
+        job = await submit(client, src)
+        await wait_state(client, job["job_id"], "complete")
+    _rewind_to_interrupted_final_write(config, data, job["job_id"])
+    async with Client(build_server(config)) as client:
+        done = await wait_state(client, job["job_id"], "complete")
+    assert done["state"] == "complete"
+    assert [r["name"] for r in read_tsv(data / "p.biomapper.tsv")] == ["a", "b"]
+    assert [r["name"] for r in read_tsv(data / "p.biomapper.weak.tsv")] == ["b"]
+    assert (data / "p.biomapper.provenance.json").is_file()
+
+
+async def test_a_replaced_weak_tsv_still_fails_recovery(router, tmp_path, data) -> None:
+    router.post(f"{API}/map/batch").mock(side_effect=weak_batch({"b"}))
+    src = write_tsv(data / "p.tsv", ["a", "b"])
+    config = cfg(tmp_path, data)
+    async with Client(build_server(config)) as client:
+        job = await submit(client, src)
+        await wait_state(client, job["job_id"], "complete")
+    _rewind_to_interrupted_final_write(config, data, job["job_id"])
+    (data / "p.biomapper.weak.tsv").write_text("mine\n")
+    async with Client(build_server(config)) as client:
+        failed = await wait_state(client, job["job_id"], "failed")
+    assert "weak.tsv" in failed["reason"]
+    assert (data / "p.biomapper.weak.tsv").read_text() == "mine\n"
+    assert not (data / "p.biomapper.tsv").exists()

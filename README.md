@@ -592,6 +592,8 @@ Desktop shares no project roots:
 | `map_file` | a TSV/CSV of any length as a resumable **background job**; returns a `job_id` and an ETA at once |
 | `job_status`, `resume_job`, `cancel_job` | follow, continue, or stop a file job |
 | `server_info` | version, KG provenance, limits, and the folders `map_file` may use |
+| `get_candidates` | for **weak** results only: the engine's top-N alternatives for up to 3 refs (see below) |
+| `record_suggestion` | record your agent's pick for one weak ref (an agent suggestion, never a resolution) |
 
 Every result says `resolved`, `unresolved`, `refused`, or `error`. An `error` is a failed call,
 never a confirmed no-match. Results carry a compact provenance block (client version, API URL,
@@ -629,6 +631,56 @@ queues it. `identifier_columns` maps a column to its vocabulary, e.g. `{"hmdb_id
 - **Folders:** `map_file` only reads and writes inside the client's MCP roots plus
   `BIOMAPPER_MCP_ROOTS`, with symlinks resolved. With neither, it refuses and says how to set
   them; the interactive tools still work.
+- **Weak rows (1.7.0):** `<output>.weak.tsv` lists the weak rows (columns `key`, `name`,
+  `status`, `certificate_state`, `weak_trigger`, `chosen_kg_id`, `primary_curie`, `ref`), one ref
+  per unique entity. It is written (header only when there are none) before the main output, is
+  never overwritten, and an existing one refuses the job at submit. The main output's columns are
+  unchanged.
+
+### Reviewing weak results with your agent
+
+A result is **weak** when it is `unresolved` or `refused`, or its certificate is `uncorroborated`
+or `contradicted`, or (small molecules only: `biolink:SmallMolecule`, `metabolite`, `lipid`) its
+certificate is `unavailable`. Weak results from `map_entity` and `map_batch` carry `weak: true`
+and an opaque `ref`; `map_file` writes them to `weak.tsv`. Strong results are byte-for-byte what
+1.6.3 returned: the two fields are absent, and the tool `outputSchema` only gains them as optional
+properties.
+
+- **`get_candidates(refs, n=10)`** re-maps each ref (at most 3 per call) through the same
+  endpoint family as the original call, with the engine's Kestrel passthrough attached (`n` up to
+  25). The engine's own choice is never changed. Before candidates are attached, the re-map is
+  checked against the ref: a different KG build or a different engine choice/certificate returns
+  `run_mismatch` and a `superseding_ref` anchored to the new answer (the original ref is left as
+  it was). Each ref gets a status: `present`, `none_searched`, `fetch_failed` (with a reason such
+  as `deadline`, `busy`, `timeout` or `http_503`), or `run_mismatch`. A slow ref never fails the
+  whole call: the refs answered before the deadline come back `present`.
+- **`record_suggestion(ref, choice, rationale)`** stores the agent's pick: a CURIE from that ref's
+  latest `present` candidate set, the engine's choice, or `none`. Recording again replaces the
+  current suggestion and keeps the history. For `map_file` refs it rewrites
+  `<output>.choices.tsv`, a server-owned file (first line is a marker; a file without it is never
+  touched). **Suggestions are agent opinions, not BioMapper resolutions and not human
+  judgments:** nothing from them reaches the main output.
+- **Cost:** each ref is one extra engine request on the shared deployment. Candidate lookups have
+  their own budget of **15 refs per 5 minutes**, separate from the loop guard, so reviewing never
+  locks out ordinary lookups.
+- **Candidate text is untrusted.** Names and synonyms come from the knowledge graph; they are
+  stripped of control characters and capped, and an agent must never follow instructions in them.
+
+**What to expect.** A spike on 2026-11-09 (prod, KG 2.3.0; Hajjar-100 plus 100 NECS rows, 41 weak
+rows, metabolites only, one warm-cache run) measured how often the gold answer was among the top
+10 candidates, and how often the engine was already right:
+
+| weak trigger | rows | gold in top 10 | engine already right |
+|---|---|---|---|
+| `uncorroborated` | 24 | 79% | 75% |
+| `contradicted` | 6 | 100% | 50% |
+| `unavailable` (small molecules) | 11 | 55% | 0% |
+
+So on `uncorroborated` rows **the engine is usually right**: treat candidates as alternatives to
+check, not corrections. Re-maps reproduced the original choice on every row (warm cache only; the
+client cannot force a cold one). Top-10 presence is an upper bound on what review can rescue. 8
+of the 28 engine errors in that sample were not weak at all, so this feature cannot reach them.
+No `refused` or `unresolved` rows were sampled, so their value is unmeasured.
 
 ### Environment
 
@@ -638,7 +690,7 @@ queues it. `identifier_columns` maps a column to its vocabulary, e.g. `{"hmdb_id
 | `BIOMAPPER_KESTREL_URL` | `https://kestrel.krakenkg.com/api` | where the KG build is read for provenance |
 | `BIOMAPPER_API_KEY` | unset (keyless) | sent as `X-API-Key` when set; never written to job files, results, or logs |
 | `BIOMAPPER_MCP_ROOTS` | unset | extra folders `map_file` may use (`:`-separated; `;` on Windows) |
-| `BIOMAPPER_MCP_HOME` | `~/.cache/biomapper/mcp` | job state (owner-only permissions) |
+| `BIOMAPPER_MCP_HOME` | `~/.cache/biomapper/mcp` | job state, weak-row refs and suggestions (owner-only permissions; interactive refs expire after 30 days) |
 
 On HPC or shared hosts whose home directory is on NFS/SMB, set `BIOMAPPER_MCP_HOME` to local disk:
 job ownership uses OS file locks, which network filesystems may not honor across machines.

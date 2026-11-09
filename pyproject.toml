@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "biomapper"
-version = "1.6.3"
+version = "1.7.0"
 description = "Python client for the BioMapper2 API — map biological entities to standardized knowledge graph identifiers"
 authors = ["Trent Leslie <trent.leslie@phenomehealth.org>"]
 license = "MIT"
@@ -23,7 +23,7 @@ packages = [{include = "biomapper", from = "src"}]
 [tool.poetry.dependencies]
 python = "^3.11"
 httpx = "^0.27"
-pydantic = "^2.0"
+pydantic = ">=2.12,<3"  # 1.7.0: Field(exclude_if=...) keeps strong rows byte-identical to 1.6.3
 python-dotenv = "^1.0"
 # The local stdio MCP server (`biomapper`, alias `biomapper-mcp`). A base dependency since 1.6.2,
 # not an extra: MCP registry clients launch `uvx <package>` and there is no documented way to make
