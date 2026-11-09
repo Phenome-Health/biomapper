@@ -594,8 +594,9 @@ def _finish_ref(
         reason=reason,
         n=n,
     )
-    if result is None or cands.remap_error(result) is not None:
-        out.reason = reason if result is None else cands.remap_error(result)
+    row_error = None if result is None else cands.remap_error(result)
+    if result is None or row_error is not None:
+        out.reason = reason if result is None else row_error
         _store_set(state, record, CandidateSet(status="fetch_failed", reason=out.reason, n=n,
                                                fetched_utc=now))
         return out
