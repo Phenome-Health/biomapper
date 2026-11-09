@@ -40,7 +40,9 @@ SERVER_INSTRUCTIONS = (
     "a TSV/CSV file and call map_file, which runs a resumable background job; poll job_status "
     "every minute or so rather than mapping entities one by one. Results report status "
     "'resolved', 'unresolved', 'refused', or 'error'; an error is a failed call, never a "
-    "confirmed no-match."
+    "confirmed no-match. Weak results carry weak=true and a ref: get_candidates returns the "
+    "engine's alternatives for up to 3 refs (the engine is usually right on uncorroborated "
+    "rows), and record_suggestion records your pick, which is never a BioMapper resolution."
 )
 
 MAP_ENTITY_DESCRIPTION = (
