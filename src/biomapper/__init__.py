@@ -53,6 +53,7 @@ from biomapper.exceptions import (
     BioMapperServerError,
     BioMapperTimeoutError,
 )
+from biomapper.many_cohorts import ManyCohortReport, harmonize_many
 from biomapper.mapper import (
     list_annotators,
     list_entity_types,
@@ -99,6 +100,9 @@ __all__ = [
     # Cohort harmonization protocol (maps both cohorts, then links them with harmonize())
     "harmonize_cohorts",
     "CohortHarmonizationReport",
+    # Two or more cohorts in one pinned run: node-anchored groups plus review queues
+    "harmonize_many",
+    "ManyCohortReport",
     # Models
     "MappingResult",
     "MappingSummary",

@@ -114,3 +114,38 @@ def test_every_new_response_model_is_exported_from_the_package_root():
         "KestrelRequestParams",
     ):
         assert name in biomapper.__all__, name
+
+
+def test_harmonize_many_is_exported_and_its_module_is_not_shadowed():
+    # The function is exported at the root; its module is `biomapper.many_cohorts`, so the root
+    # name never shadows a same-named submodule (the trap `harmonize` avoids above).
+    import biomapper.many_cohorts
+
+    assert "harmonize_many" in biomapper.__all__
+    assert "ManyCohortReport" in biomapper.__all__
+    assert biomapper.harmonize_many is biomapper.many_cohorts.harmonize_many
+
+
+def test_the_readme_harmonize_many_example_runs_as_documented(tmp_path, monkeypatch):
+    import re
+    from pathlib import Path
+
+    import biomapper.many_cohorts as many
+    from biomapper._pins import collect_pins
+
+    readme = (Path(__file__).resolve().parents[1] / "README.md").read_text()
+    section = readme.split("### Harmonizing more than two cohorts: `harmonize_many()`", 1)[1]
+    code = re.search(r"```python\n(.*?)```", section, re.S).group(1)
+    monkeypatch.chdir(tmp_path)
+    # offline: no /health probes
+    monkeypatch.setattr(many, "collect_pins", lambda **kw: collect_pins(**{**kw, "probe": False}))
+    namespace: dict = {}
+    with pytest.warns(UserWarning, match="KG build unknown"):
+        exec(compile(code, "README.md", "exec"), namespace)
+    s = namespace["s"]
+    arm = s["arms"]["names_only"]
+    assert arm["groups"] == 3
+    assert arm["cross_node_entries"] == 1
+    assert arm["id_check"]["by_status"]["confirmed"] == 2
+    assert "tartu" in s["identifier_arm_skipped"]
+    assert s["publication_grade"] == "iteration-grade, not for publication"

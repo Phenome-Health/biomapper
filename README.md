@@ -545,6 +545,121 @@ list[MappingResult]` callable) to replay recorded results offline; the tests rep
 x Arivale labs this way (`tests/fixtures/cohorts_labs_cm/`, KRAKEN kg 2.3.0 / 3dd08a5b: 37 pairs,
 21 one-to-one by name).
 
+### Harmonizing more than two cohorts: `harmonize_many()`
+
+`harmonize_many()` harmonizes two or more cohorts in one pinned run. `harmonize_cohorts()` cannot
+simply be looped: it re-maps both cohorts on every call, and pairwise links do not chain into
+consistent groups. `harmonize_many()` maps each cohort once, saves the mappings so later runs
+reuse them, and groups rows across all cohorts by the KRAKEN node each one resolved to.
+
+A worked example on three toy cohorts (the `mapper=` here stands in for the hosted API; drop it
+to map live):
+
+```python
+from biomapper import MappingResult, harmonize_many
+
+ENTRIES = {  # name -> (chosen node, equivalent identifiers)
+    "glucose": ("CHEBI:17234", {"HMDB": ["HMDB0000122"]}),
+    "Glucose": ("CHEBI:17234", {"HMDB": ["HMDB0000122"]}),
+    "fatty acids": ("CHEBI:35366", {"LM": ["FA0101"]}),
+    "palmitate": ("LM:FA0101", {}),
+}
+
+def toy_mapper(records, *, entity_type, annotation_mode):
+    out = []
+    for r in records:
+        node, eq = ENTRIES.get(r["name"], (None, {}))
+        out.append(MappingResult(query_name=r["name"], resolved=node is not None,
+                                 chosen_kg_id=node, kg_equivalent_ids=eq))
+    return out
+
+report = harmonize_many(
+    {
+        "qmdiab": [{"name": "glucose", "hmdb": "HMDB00122"}, {"name": "fatty acids", "hmdb": ""}],
+        "chear": [{"name": "Glucose", "hmdb": "HMDB0000122"}, {"name": "palmitate", "hmdb": ""}],
+        "tartu": [{"name": "glucose"}, {"name": "unknown thing"}],
+    },
+    entity="metabolites",
+    vocabularies={"qmdiab": {"HMDB": "hmdb"}, "chear": {"HMDB": "hmdb"}},
+    mapper=toy_mapper,
+)
+# harmonize_many: run directory .../biomapper_runs/harmonize_many_20261108T190000Z
+s = report.summary()
+s["arms"]["names_only"]["groups"]               # 3: CHEBI:17234 (all three), CHEBI:35366, LM:FA0101
+s["arms"]["names_only"]["cross_node_entries"]   # 1: fatty acids (CHEBI:35366) <-> palmitate (LM:FA0101)
+s["arms"]["names_only"]["id_check"]["by_status"]  # qmdiab and chear glucose: confirmed
+s["identifier_arm_skipped"]                      # HMDB is not declared by tartu
+s["publication_grade"]                           # iteration-grade, not for publication
+```
+
+A custom `mapper=` keeps its saved mappings apart from the hosted API's, keyed by its identity: a
+plain module-level function is identified by its name, and a `functools.partial` by the wrapped
+function plus its arguments. A mapper whose settings biomapper cannot see (a callable object, a
+bound method, a lambda or closure, or a partial with non-JSON arguments) is mapped fresh on every
+run, with a warning, unless it has a `store_id` attribute naming its configuration.
+
+What it reports, per arm (names-only always; the identifier arm when a vocabulary is shared):
+
+- **Node groups** (`matrix_<arm>.tsv`, one row per node and one column per cohort, and
+  `membership_<arm>.tsv`, one row per input row). Rows are grouped by their raw `chosen_kg_id`,
+  the value `harmonize()`'s `node` basis compares. A group is *clean* when each cohort in it
+  contributes one row and no member resolved to a class-level entry.
+- **Flagged groups** (`flagged_groups_<arm>.tsv`): *multiplicity* when one cohort contributes two
+  or more rows to a node, *broad* when any member's `lipid_resolution.mapping_relation` is
+  `"broad"` (a class node such as a lipid class, not one species).
+- **Cross-node queue** (`cross_node_<arm>.tsv` by node pair, `cross_node_pairs_<arm>.tsv` row by
+  row). An identifier or name link between rows on different nodes is never merged into one group,
+  so a class node linked to five species stays six groups and five review entries rather than
+  one chained group. Short names equal only after casefold (Co vs CO) are listed in
+  `withheld_<arm>.tsv` and never linked.
+- **Rows that are not grouped** (`not_grouped_<arm>.tsv`): `unresolved` (no identifiers),
+  `errored` (the mapping call failed; the run's status is then `partial`), and `no_node` (has
+  identifiers but no usable chosen node, for example a structure-namespace `chosen_kg_id`; its
+  links still go to the cross-node queue).
+- **Identifier check** (`id_check` column in membership, `id_check_review_<arm>.tsv`). Each grouped
+  row's declared identifiers are compared with its node's identifiers (legacy 5-digit HMDB codes
+  are zero-padded; InChIKeys are compared in full against the node's InChIKey). Statuses are
+  `confirmed`, `not_confirmed`, `no_declared_id` and `errored`; only `not_confirmed` is listed.
+  `not_confirmed` does not mean contradicted: the node may lack that cross-reference. In the
+  identifier arm the same codes were sent to the mapper, so its statuses are labelled not
+  independent.
+- **Identifier arm.** Only vocabularies **every** cohort declares are supplied as mapping input,
+  and only rows carrying one are re-mapped. Its groups are diffed against names-only by node
+  (`diff.tsv`).
+
+**How the counts relate to pairwise links.** `harmonize_many()` is stricter than `harmonize()`:
+a pairwise link between rows on different nodes is a review item here, not a match. The overlap
+table (`overlap_<arm>.tsv`) connects the two for every cohort pair: *same-node row pairs* (rows
+from A x rows from B per shared node) plus *cross-node link pairs* equals the number of links
+`harmonize()` finds on the same results, with name linking on for small molecules only. It also
+reports *overlap groups*, the number of nodes both cohorts reach. The links come from the
+unchanged `harmonize()`, called once per pair, so this holds by construction and `reconciles` is
+a bookkeeping check.
+
+**Saved mappings and reuse.** Mappings are saved per arm in `biomapper_runs/harmonize_many_store/`
+(`store_dir=` to keep them somewhere durable; the absolute path is printed). Entries are keyed by
+name, identifiers sent and request options, not by cohort label, so adding a fourth cohort maps
+only its new names and two analyses that both call a table "QMDiab" cannot collide. Errored rows
+are never saved. The KG build is read from Kestrel before any request: a store made on a different
+build is refused before anything is sent (`remap_all=True` maps everything again and keeps the old
+mappings aside), and when the build cannot be read nothing is reused or saved. A lock refuses a
+second run writing the same store.
+
+**Publication grade.** A run that reused any saved mapping is `iteration-grade, not for
+publication`: the API does not expose its engine release, so reuse cannot detect engine drift on
+one KG build. **Numbers you publish should come from a `remap_all=True` run**, which is
+`publishable` when the KG build is verified.
+
+**Output by default** goes to `biomapper_runs/harmonize_many_<UTC stamp>/` (`output_dir=`,
+`save=False`, `report.write(path)` as for `harmonize_cohorts()`), with per-cohort provenance
+(`provenance_<arm>_<label>.json`: session id, request checksum, file SHA-256, reused and fresh
+counts), the pins, `settings.json` and `summary.json`. No absolute path is written to JSON.
+
+The split-recall gate (`scripts/harmonize_many_split_recall.py`) measures, on a NECS x Arivale
+answer key built from curated HMDB identifiers rather than names, how many true matches land in a
+node group, in the cross-node queue, or in neither, reported separately for pairs whose names
+differ. It is a live run the operator starts.
+
 ---
 
 ## Use from an agent (MCP)
