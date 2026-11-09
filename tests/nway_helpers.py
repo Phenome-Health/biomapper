@@ -84,3 +84,45 @@ class NameReplayMapper:
             self.sent.append(r["name"])
             out.append(replay_result(self.entity, r["name"]))
         return out
+
+
+def write_three_metabolite_cohorts(directory: Path) -> dict[str, Path]:
+    """A three-cohort small-molecule fixture whose every name has a recorded real payload.
+
+    ``ukbb_nmr`` is part of UK Biobank's NMR panel (its first 50 rows and every row that links to
+    Arivale); ``arivale_a`` and ``arivale_b`` are two overlapping
+    slices of the Arivale panel (rows 0-59 and 30-89, plus every Arivale row that links to a UK
+    Biobank row), so all three pairs share rows. Arivale's HMDB and KEGG columns ride along as
+    declared identifiers. Names are verbatim, so the shipped milestone replay serves every one.
+    """
+    panels = metabolite_panels()
+    ukbb, arivale = panels["ukbb"], panels["arivale"]
+    nodes_ukbb = {replay_result("metabolites", r["name"]).chosen_kg_id for r in ukbb}
+    partners = [r for r in arivale
+                if replay_result("metabolites", r["name"]).chosen_kg_id in nodes_ukbb]
+    nodes_arivale = {replay_result("metabolites", r["name"]).chosen_kg_id for r in arivale}
+    ukbb_rows = list({r["key"]: r for r in [
+        *ukbb[:50],
+        *(r for r in ukbb if replay_result("metabolites", r["name"]).chosen_kg_id in nodes_arivale),
+    ]}.values())
+    slices = {
+        "arivale_a": [*arivale[:60], *partners[::2]],
+        "arivale_b": [*arivale[30:90], *partners[1::2]],
+    }
+    directory.mkdir(parents=True, exist_ok=True)
+    out = {"ukbb_nmr": directory / "ukbb_nmr.tsv"}
+    with out["ukbb_nmr"].open("w", encoding="utf-8", newline="") as fh:
+        w = csv.writer(fh, delimiter="\t", lineterminator="\n")
+        w.writerow(["key", "title"])
+        w.writerows([r["key"], r["name"]] for r in ukbb_rows)
+    for label, rows in slices.items():
+        seen: set[str] = set()
+        out[label] = directory / f"{label}.tsv"
+        with out[label].open("w", encoding="utf-8", newline="") as fh:
+            w = csv.writer(fh, delimiter="\t", lineterminator="\n")
+            w.writerow(["key", "BIOCHEMICAL_NAME", "HMDB", "KEGG"])
+            for r in rows:
+                if r["key"] not in seen:
+                    seen.add(r["key"])
+                    w.writerow([r["key"], r["name"], r["HMDB"], r["KEGG"]])
+    return out
