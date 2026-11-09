@@ -184,6 +184,22 @@ def test_verification_checks_the_build_first_then_the_choice(tmp_path) -> None:
     assert cands.verify(rec, same, "unknown") == "build_changed"
 
 
+@pytest.mark.parametrize("unpinned", ["pending", "unknown"])
+def test_a_ref_issued_before_pins_landed_is_verified_on_its_choice_only(
+    tmp_path, unpinned
+) -> None:
+    """Refs issued before the startup probe lands carry kg_build 'pending'. Comparing that string to
+    the real build would report build_changed forever, so only the choice is checked."""
+    store = RefStore(tmp_path)
+    rec = store.issue(source="entity",
+                      query={"name": "x", "entity_type": ST},
+                      result=_mr(chosen="CHEBI:1", cert="uncorroborated"),
+                      weak_trigger="uncorroborated", kg_build=unpinned)
+    assert cands.verify(rec, _mr(chosen="CHEBI:1", cert="uncorroborated"), BUILD) is None
+    moved = _mr(chosen="CHEBI:2", cert="uncorroborated")
+    assert cands.verify(rec, moved, BUILD) == "choice_changed"
+
+
 @pytest.mark.parametrize(
     ("exc", "reason"),
     [

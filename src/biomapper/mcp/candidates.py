@@ -217,9 +217,19 @@ def _reason_slug(text: str) -> str:
 # ---------------------------------------------------------------------------
 
 
+# Builds a ref can carry without ever having been pinned: refs issued in a session's first seconds,
+# before the startup probe lands, record "pending"; an unreachable Kestrel records "unknown".
+UNPINNED_BUILDS = frozenset({"pending", "unknown"})
+
+
 def verify(record: RefRecord, remap: MappingResult, current_build: str) -> MismatchReason | None:
-    """Pins first (a different KG build), then the engine's choice, certificate and status."""
-    if current_build != record.pins.kg_build:
+    """Pins first (a different KG build), then the engine's choice, certificate and status.
+
+    A ref whose own build was never pinned has nothing to compare against, so only its choice is
+    checked. Treating "pending" as a build would turn every early-session ref into a permanent
+    false ``build_changed``.
+    """
+    if record.pins.kg_build not in UNPINNED_BUILDS and current_build != record.pins.kg_build:
         return "build_changed"
     now = RefEngine.of(remap)
     before = record.engine
