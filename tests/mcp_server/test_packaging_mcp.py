@@ -139,7 +139,22 @@ async def test_the_stdio_server_starts_and_lists_its_tools(tmp_path: Path) -> No
     async with Client(params) as client:
         names = {t.name for t in (await client.list_tools()).tools}
     assert {"map_entity", "map_batch", "map_file", "job_status", "resume_job", "cancel_job",
-            "list_entity_types", "list_vocabularies", "list_annotators", "server_info"} <= names
+            "list_entity_types", "list_vocabularies", "list_annotators", "server_info",
+            "get_candidates", "record_suggestion"} <= names
+
+
+def test_pydantic_floor_supports_field_exclude_if() -> None:
+    """1.7.0 keeps strong rows byte-identical to 1.6.3 with ``Field(exclude_if=...)`` (2.12+)."""
+    spec = _poetry()["dependencies"]["pydantic"]
+    version = spec if isinstance(spec, str) else spec["version"]
+    assert version.startswith(">=2.12"), version
+    assert "<3" in version
+
+
+def test_built_wheel_requires_pydantic_2_12(built_wheel: Path) -> None:
+    metadata = _wheel_file(built_wheel, ".dist-info/METADATA")
+    [line] = re.findall(r"^Requires-Dist: (pydantic\b.*)$", metadata, re.MULTILINE)
+    assert ">=2.12" in line, line
 
 
 # ---------------------------------------------------------------------------
