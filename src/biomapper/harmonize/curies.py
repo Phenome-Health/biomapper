@@ -134,3 +134,13 @@ def curie_set(
         for c in predicted_curies(chosen, equivalents)
         if c.split(":", 1)[0] not in _STRUCTURAL_NAMESPACES
     )
+
+
+def is_structure_curie(curie: Any) -> bool:  # noqa: ANN401 — accepts any cell value
+    """True when ``curie`` is in a structure-encoding namespace (InChIKey / InChI / SMILES).
+
+    Such a ``chosen_kg_id`` is not a usable node to group on: :func:`curie_set` drops it, so it
+    can never anchor an identifier link.
+    """
+    normalized = normalize_curie(curie)
+    return normalized is not None and normalized.split(":", 1)[0] in _STRUCTURAL_NAMESPACES
