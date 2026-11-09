@@ -38,6 +38,8 @@ from biomapper.mcp.jobs import (
     probe_pins,
     roots_from_uris,
 )
+from biomapper.mcp.references import RefSource, RefStore
+from biomapper.models import MappingResult
 
 logger = logging.getLogger("biomapper.mcp")
 
@@ -56,6 +58,7 @@ class AppState:
     gate: RequestGate
     guard: LoopGuard
     jobs: JobManager
+    refs: RefStore
     pins: dict[str, Any] | None = None
     pins_ready: anyio.Event = field(default_factory=anyio.Event)
 
@@ -91,6 +94,40 @@ def _state(ctx: Context[Any, Any]) -> AppState:
     state = ctx.request_context.lifespan_context
     assert isinstance(state, AppState)
     return state
+
+
+def _shape_and_flag(
+    state: AppState,
+    result: MappingResult,
+    *,
+    source: RefSource,
+    entity_type: str,
+    identifiers: dict[str, str],
+    annotation_mode: str,
+) -> tools.EntityResult:
+    """Shape one result; a weak row gets ``weak: true`` and, if it can be stored, a ``ref``.
+
+    Failing to store a ref never fails or alters the mapping itself.
+    """
+    shaped = tools.shape_result(result)
+    trigger = tools.weak_trigger(result, entity_type)
+    if trigger is None:
+        return shaped
+    shaped.weak = True
+    try:
+        record = state.refs.issue(
+            source=source,
+            query={"name": result.query_name, "entity_type": entity_type,
+                   "identifiers": identifiers, "annotation_mode": annotation_mode},
+            result=result,
+            weak_trigger=trigger,
+            kg_build=state.provenance().kg_build,
+        )
+    except OSError:
+        logger.warning("could not store a ref for a weak row", exc_info=True)
+        return shaped
+    shaped.ref = record.ref_id
+    return shaped
 
 
 def _want_roots(ctx: Context[Any, Any]) -> ListRoots | ListRootsResult:
@@ -153,7 +190,8 @@ def build_server(config: ServerConfig | None = None) -> MCPServer[AppState]:
             BioMapperClient(base_url=cfg.base_url, timeout=cfg.job_timeout_s, **key_kwargs) as jc,
             anyio.create_task_group() as tg,
         ):
-            jobs = JobManager(cfg, gate=gate, client=jc)
+            refs = RefStore(cfg.home, wall_clock=cfg.wall_clock)
+            jobs = JobManager(cfg, gate=gate, client=jc, refs=refs)
             state = AppState(
                 config=cfg,
                 interactive=interactive,
@@ -161,6 +199,7 @@ def build_server(config: ServerConfig | None = None) -> MCPServer[AppState]:
                 gate=gate,
                 guard=LoopGuard(cfg.loop_limit, cfg.loop_window_s, clock=cfg.monotonic),
                 jobs=jobs,
+                refs=refs,
             )
             tg.start_soon(state.load_pins)
             tg.start_soon(jobs.run_worker)
@@ -250,8 +289,11 @@ def build_server(config: ServerConfig | None = None) -> MCPServer[AppState]:
             ),
             count=True,
         )
-        return tools.MapEntityResult(result=tools.shape_result(result),
-                                     provenance=state.provenance())
+        shaped = _shape_and_flag(
+            state, result, source="entity", entity_type=entity_type,
+            identifiers=dict(identifiers or {}), annotation_mode=annotation_mode,
+        )
+        return tools.MapEntityResult(result=shaped, provenance=state.provenance())
 
     @server.tool(description=tools.MAP_BATCH_DESCRIPTION)
     async def map_batch(
@@ -271,7 +313,9 @@ def build_server(config: ServerConfig | None = None) -> MCPServer[AppState]:
             )
         if not entities:
             raise ToolError("map_batch needs at least one entity.")
-        records = [{"name": e.name, "identifiers": dict(e.identifiers)} for e in entities]
+        records: list[dict[str, Any]] = [
+            {"name": e.name, "identifiers": dict(e.identifiers)} for e in entities
+        ]
         results = await _gated(
             state,
             lambda: state.interactive.map_entities(
@@ -289,7 +333,14 @@ def build_server(config: ServerConfig | None = None) -> MCPServer[AppState]:
                 f"were returned."
             )
         return tools.MapBatchResult(
-            results=[tools.shape_result(r) for r in results], provenance=state.provenance()
+            results=[
+                _shape_and_flag(
+                    state, r, source="batch", entity_type=entity_type,
+                    identifiers=dict(rec["identifiers"]), annotation_mode=annotation_mode,
+                )
+                for r, rec in zip(results, records, strict=True)
+            ],
+            provenance=state.provenance(),
         )
 
     _register_job_tools(server)

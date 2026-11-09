@@ -1,0 +1,74 @@
+{
+  "map_entity": {
+    "structured": {
+      "result": {
+        "query_name": "L-Histidine",
+        "status": "resolved",
+        "primary_curie": "RM:0129894",
+        "chosen_kg_id": "CHEBI:15971",
+        "confidence_score": 2.4898567923359374,
+        "confidence_tier": "high",
+        "certificate_state": "corroborated",
+        "refusal_reason": null,
+        "reason": null,
+        "kg_equivalent_ids": {
+          "CHEBI": [
+            "15971",
+            "44637"
+          ],
+          "HMDB": [
+            "HMDB0000177"
+          ]
+        },
+        "error": null
+      },
+      "provenance": {
+        "client_version": "1.6.3",
+        "api_base_url": "https://api.test/api/v1",
+        "kestrel_url": "https://kestrel.test/api",
+        "kg_build": "2.3.0 (3dd08a5b)",
+        "kg_verified": true,
+        "kg_label": "Kestrel's own /health; the graph the API used is assumed, not verified, to be this build",
+        "pins_status": "ready"
+      }
+    },
+    "text": "{\n  \"result\": {\n    \"query_name\": \"L-Histidine\",\n    \"status\": \"resolved\",\n    \"primary_curie\": \"RM:0129894\",\n    \"chosen_kg_id\": \"CHEBI:15971\",\n    \"confidence_score\": 2.4898567923359374,\n    \"confidence_tier\": \"high\",\n    \"certificate_state\": \"corroborated\",\n    \"refusal_reason\": null,\n    \"reason\": null,\n    \"kg_equivalent_ids\": {\n      \"CHEBI\": [\n        \"15971\",\n        \"44637\"\n      ],\n      \"HMDB\": [\n        \"HMDB0000177\"\n      ]\n    },\n    \"error\": null\n  },\n  \"provenance\": {\n    \"client_version\": \"1.6.3\",\n    \"api_base_url\": \"https://api.test/api/v1\",\n    \"kestrel_url\": \"https://kestrel.test/api\",\n    \"kg_build\": \"2.3.0 (3dd08a5b)\",\n    \"kg_verified\": true,\n    \"kg_label\": \"Kestrel's own /health; the graph the API used is assumed, not verified, to be this build\",\n    \"pins_status\": \"ready\"\n  }\n}"
+  },
+  "map_batch": {
+    "structured": {
+      "results": [
+        {
+          "query_name": "L-Histidine",
+          "status": "resolved",
+          "primary_curie": "RM:0129894",
+          "chosen_kg_id": "CHEBI:15971",
+          "confidence_score": 2.4898567923359374,
+          "confidence_tier": "high",
+          "certificate_state": "corroborated",
+          "refusal_reason": null,
+          "reason": null,
+          "kg_equivalent_ids": {
+            "CHEBI": [
+              "15971",
+              "44637"
+            ],
+            "HMDB": [
+              "HMDB0000177"
+            ]
+          },
+          "error": null
+        }
+      ],
+      "provenance": {
+        "client_version": "1.6.3",
+        "api_base_url": "https://api.test/api/v1",
+        "kestrel_url": "https://kestrel.test/api",
+        "kg_build": "2.3.0 (3dd08a5b)",
+        "kg_verified": true,
+        "kg_label": "Kestrel's own /health; the graph the API used is assumed, not verified, to be this build",
+        "pins_status": "ready"
+      }
+    },
+    "text": "{\n  \"results\": [\n    {\n      \"query_name\": \"L-Histidine\",\n      \"status\": \"resolved\",\n      \"primary_curie\": \"RM:0129894\",\n      \"chosen_kg_id\": \"CHEBI:15971\",\n      \"confidence_score\": 2.4898567923359374,\n      \"confidence_tier\": \"high\",\n      \"certificate_state\": \"corroborated\",\n      \"refusal_reason\": null,\n      \"reason\": null,\n      \"kg_equivalent_ids\": {\n        \"CHEBI\": [\n          \"15971\",\n          \"44637\"\n        ],\n        \"HMDB\": [\n          \"HMDB0000177\"\n        ]\n      },\n      \"error\": null\n    }\n  ],\n  \"provenance\": {\n    \"client_version\": \"1.6.3\",\n    \"api_base_url\": \"https://api.test/api/v1\",\n    \"kestrel_url\": \"https://kestrel.test/api\",\n    \"kg_build\": \"2.3.0 (3dd08a5b)\",\n    \"kg_verified\": true,\n    \"kg_label\": \"Kestrel's own /health; the graph the API used is assumed, not verified, to be this build\",\n    \"pins_status\": \"ready\"\n  }\n}"
+  }
+}
