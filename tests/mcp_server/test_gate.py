@@ -150,3 +150,35 @@ async def test_gate_counts_peak_concurrency_for_diagnostics() -> None:
         pass
     assert gate.max_in_flight == 1
     assert gate.acquisitions == 2
+
+
+# ---------------------------------------------------------------------------
+# Candidate budget (1.7.0): its own window, separate from the loop guard
+# ---------------------------------------------------------------------------
+
+
+def test_candidate_budget_charges_per_ref_and_refuses_past_the_limit() -> None:
+    from biomapper.mcp.gate import CandidateBudget, CandidateBudgetExhausted
+
+    clock = FakeClock()
+    budget = CandidateBudget(limit=15, window_s=300.0, clock=clock)
+    assert budget.available() == 15
+    for _ in range(15):
+        budget.charge()
+    assert budget.available() == 0
+    with pytest.raises(CandidateBudgetExhausted) as exc:
+        budget.charge()
+    assert "15" in str(exc.value) and "5 minutes" in str(exc.value)
+    clock.now += 300.01
+    assert budget.available() == 15
+
+
+def test_candidate_budget_is_independent_of_the_loop_guard() -> None:
+    from biomapper.mcp.gate import CandidateBudget
+
+    clock = FakeClock()
+    guard = LoopGuard(limit=1, window_s=300.0, clock=clock)
+    budget = CandidateBudget(limit=2, window_s=300.0, clock=clock)
+    budget.charge()
+    budget.charge()
+    guard.record()  # the loop guard never saw the candidate charges

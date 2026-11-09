@@ -17,9 +17,11 @@ import sys
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Annotated, Any, Literal, TypeVar
 
 import anyio
+import httpx
 from mcp.server.mcpserver import Context, ListRoots, MCPServer, Resolve
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ListRootsResult
@@ -28,9 +30,18 @@ from pydantic import BaseModel, Field
 from biomapper._version import resolve_version
 from biomapper.client import BioMapperClient
 from biomapper.exceptions import BioMapperError
+from biomapper.mcp import candidates as cands
 from biomapper.mcp import tools
+from biomapper.mcp._storage import utc
 from biomapper.mcp.config import ServerConfig
-from biomapper.mcp.gate import GateBusy, LoopGuard, LoopGuardTripped, RequestGate
+from biomapper.mcp.gate import (
+    CandidateBudget,
+    CandidateBudgetExhausted,
+    GateBusy,
+    LoopGuard,
+    LoopGuardTripped,
+    RequestGate,
+)
 from biomapper.mcp.jobs import (
     JobManager,
     JobStatus,
@@ -38,7 +49,14 @@ from biomapper.mcp.jobs import (
     probe_pins,
     roots_from_uris,
 )
-from biomapper.mcp.references import RefSource, RefStore
+from biomapper.mcp.references import (
+    CandidateSet,
+    RefEngine,
+    RefError,
+    RefRecord,
+    RefSource,
+    RefStore,
+)
 from biomapper.models import MappingResult
 
 logger = logging.getLogger("biomapper.mcp")
@@ -59,6 +77,7 @@ class AppState:
     guard: LoopGuard
     jobs: JobManager
     refs: RefStore
+    candidate_budget: CandidateBudget
     pins: dict[str, Any] | None = None
     pins_ready: anyio.Event = field(default_factory=anyio.Event)
 
@@ -173,6 +192,59 @@ async def _gated(
         raise ToolError(tools.explain_client_error(exc)) from None
 
 
+Outcome = tuple[T | None, str | None]
+
+
+async def _gated_partial(
+    state: AppState,
+    calls: list[Callable[[], Awaitable[T]]],
+    *,
+    on_attempt: Callable[[], None],
+) -> list[Outcome[T]]:
+    """Run several requests under ONE wall-clock deadline, one gate hold each, never all-or-nothing.
+
+    Unlike :func:`_gated`, a failure is a per-call reason, not a ToolError: ``deadline`` for every
+    call the deadline cut off (including one in flight), ``busy`` when the gate stayed held (by a
+    job chunk) past ``gate_wait_s``, and otherwise the HTTP or transport class of the failure.
+    ``on_attempt`` runs as each call starts, which is when it is charged.
+    """
+    outcomes: list[Outcome[T]] = [(None, "deadline")] * len(calls)
+    with anyio.move_on_after(state.config.tool_deadline_s):
+        for index, call in enumerate(calls):
+            on_attempt()
+            try:
+                async with state.gate.hold(wait_budget_s=state.config.gate_wait_s):
+                    outcomes[index] = (await call(), None)
+            except GateBusy:
+                outcomes[index] = (None, "busy")
+            except (BioMapperError, httpx.HTTPError, OSError) as exc:
+                outcomes[index] = (None, cands.reason_for_exception(exc))
+    return outcomes
+
+
+def _load_ref(state: AppState, ref: str, roots: list[Path]) -> RefRecord:
+    """Load a ref the session may use: interactive by home+uid, a job ref by the job's folders."""
+    try:
+        record = state.refs.load(ref)
+    except RefError as exc:
+        raise ToolError(str(exc)) from None
+    if record.source == "job":
+        job = state.jobs._load(record.job_id or "")
+        if job is None:
+            raise ToolError(f"Reference {ref!r} belongs to a job that no longer exists.")
+        if not state.jobs._within(job, state.jobs.allowed_roots(roots)):
+            raise ToolError(
+                f"Reference {ref!r} belongs to a job whose files are outside the folders allowed "
+                "in this session."
+            )
+    return record
+
+
+async def _await_pins(state: AppState, limit_s: float = 5.0) -> None:
+    with anyio.move_on_after(limit_s):
+        await state.pins_ready.wait()
+
+
 def build_server(config: ServerConfig | None = None) -> MCPServer[AppState]:
     """Build the server. ``config=None`` reads the environment at lifespan start."""
 
@@ -190,7 +262,7 @@ def build_server(config: ServerConfig | None = None) -> MCPServer[AppState]:
             BioMapperClient(base_url=cfg.base_url, timeout=cfg.job_timeout_s, **key_kwargs) as jc,
             anyio.create_task_group() as tg,
         ):
-            refs = RefStore(cfg.home, wall_clock=cfg.wall_clock)
+            refs = RefStore(cfg.home, wall_clock=cfg.wall_clock, ttl_s=cfg.ref_ttl_s)
             jobs = JobManager(cfg, gate=gate, client=jc, refs=refs)
             state = AppState(
                 config=cfg,
@@ -200,6 +272,9 @@ def build_server(config: ServerConfig | None = None) -> MCPServer[AppState]:
                 guard=LoopGuard(cfg.loop_limit, cfg.loop_window_s, clock=cfg.monotonic),
                 jobs=jobs,
                 refs=refs,
+                candidate_budget=CandidateBudget(
+                    cfg.candidate_budget, cfg.candidate_window_s, clock=cfg.monotonic
+                ),
             )
             tg.start_soon(state.load_pins)
             tg.start_soon(jobs.run_worker)
@@ -343,8 +418,151 @@ def build_server(config: ServerConfig | None = None) -> MCPServer[AppState]:
             provenance=state.provenance(),
         )
 
+    # ------------------------------------------------------------------
+    # Candidate review (1.7.0): weak rows only, own budget, partial results
+    # ------------------------------------------------------------------
+
+    @server.tool(description=cands.GET_CANDIDATES_DESCRIPTION)
+    async def get_candidates(
+        refs: list[str],
+        ctx: Context[AppState, Any],
+        roots: ClientRoots,
+        n: int | None = None,
+    ) -> cands.GetCandidatesResult:
+        state = _state(ctx)
+        cfg = state.config
+        top_n = cfg.candidates_default_n if n is None else n
+        if not 1 <= top_n <= cfg.candidates_max_n:
+            raise ToolError(f"n must be between 1 and {cfg.candidates_max_n} (got {top_n}).")
+        wanted = list(dict.fromkeys(refs))
+        if not wanted:
+            raise ToolError("get_candidates needs at least one ref.")
+        if len(wanted) > cfg.candidates_refs_per_call:
+            raise ToolError(
+                f"get_candidates takes at most {cfg.candidates_refs_per_call} refs per call (got "
+                f"{len(wanted)}); each is a full re-map on the shared deployment. Split them "
+                f"across calls."
+            )
+        client_roots = roots_from_uris(roots.roots)
+        records = [_load_ref(state, ref, client_roots) for ref in wanted]
+        strong = [r.ref_id for r in records if r.weak_trigger is None]
+        if strong:
+            raise ToolError(
+                f"Reference(s) {', '.join(strong)} are not weak (the engine's answer was "
+                "corroborated on the re-map that issued them), so there is nothing to review. "
+                "Use the candidates already returned with them, or record_suggestion."
+            )
+        if state.candidate_budget.available() < len(records):
+            raise ToolError(state.candidate_budget.refusal(len(records)))
+
+        def remap(record: RefRecord) -> Callable[[], Awaitable[MappingResult]]:
+            q = record.query
+            if record.source == "entity":
+                return lambda: state.interactive.map_entity(
+                    q.name, entity_type=q.entity_type, identifiers=dict(q.identifiers),
+                    annotation_mode=q.annotation_mode, kestrel_top_n=top_n,
+                )
+
+            async def one() -> MappingResult:
+                results = await state.interactive.map_entities(
+                    [{"name": q.name, "identifiers": dict(q.identifiers)}],
+                    entity_type=q.entity_type, annotation_mode=q.annotation_mode,
+                    kestrel_top_n=top_n, sleep_on_rate_limit=False,
+                )
+                if len(results) != 1:
+                    raise BioMapperError("batch of one returned a different number of results")
+                return results[0]
+
+            return one
+
+        def charge() -> None:
+            try:
+                state.candidate_budget.charge()
+            except CandidateBudgetExhausted as exc:  # pre-checked; only a race lands here
+                raise ToolError(str(exc)) from None
+
+        await _await_pins(state)
+        outcomes = await _gated_partial(state, [remap(r) for r in records], on_attempt=charge)
+        build = state.provenance().kg_build
+        return cands.GetCandidatesResult(
+            results=[
+                _finish_ref(state, record, result, reason, top_n, build)
+                for record, (result, reason) in zip(records, outcomes, strict=True)
+            ],
+            provenance=state.provenance(),
+        )
+
     _register_job_tools(server)
     return server
+
+
+def _store_set(state: AppState, record: RefRecord, cset: CandidateSet) -> None:
+    if record.candidates is not None:
+        record.candidate_history.append(record.candidates)
+    record.candidates = cset
+    try:
+        state.refs.save(record)
+    except OSError:
+        logger.warning("could not store candidates on %s", record.ref_id, exc_info=True)
+
+
+def _finish_ref(
+    state: AppState,
+    record: RefRecord,
+    result: MappingResult | None,
+    reason: str | None,
+    n: int,
+    build: str,
+) -> cands.RefCandidates:
+    """Turn one re-map outcome into the ref's status, and store what was fetched on the ref."""
+    now = utc(state.config.wall_clock())
+    out = cands.RefCandidates(
+        ref=record.ref_id,
+        query_name=record.query.name,
+        weak_trigger=record.weak_trigger,
+        engine_choice=record.engine_choice,
+        certificate_state=record.engine.certificate_state,
+        status="fetch_failed",
+        reason=reason,
+        n=n,
+    )
+    if result is None or cands.remap_error(result) is not None:
+        out.reason = reason if result is None else cands.remap_error(result)
+        _store_set(state, record, CandidateSet(status="fetch_failed", reason=out.reason, n=n,
+                                               fetched_utc=now))
+        return out
+    mismatch = cands.verify(record, result, build)
+    if mismatch is not None:
+        # Anchor a fresh ref to the re-map so the agent can carry on deliberately. The original
+        # keeps its engine answer; its stored set is marked unusable.
+        status, why, items, raw = cands.compact(result, RefEngine.of(result), n=n)
+        out.status, out.reason = "run_mismatch", mismatch
+        _store_set(state, record, CandidateSet(status="run_mismatch", reason=mismatch, n=n,
+                                               fetched_utc=now, raw_sha256=raw))
+        try:
+            new = state.refs.issue(
+                source=record.source,
+                job_id=record.job_id,
+                row_key=record.row_key,
+                query=record.query.model_dump(),
+                result=result,
+                weak_trigger=tools.weak_trigger(result, record.query.entity_type),
+                kg_build=build,
+                supersedes=record.ref_id,
+            )
+        except (OSError, RefError):
+            logger.warning("could not issue a superseding ref", exc_info=True)
+            return out
+        _store_set(state, new, CandidateSet(status=status, reason=why, n=n, fetched_utc=now,
+                                            raw_sha256=raw, items=items))
+        out.superseding_ref = new.ref_id
+        out.candidates = items
+        return out
+    status, why, items, raw = cands.compact(result, record.engine, n=n)
+    out.status, out.reason, out.candidates = status, why, items
+    _store_set(state, record, CandidateSet(status=status, reason=why, n=n, fetched_utc=now,
+                                           raw_sha256=raw, items=items))
+    return out
 
 
 def _register_job_tools(server: MCPServer[AppState]) -> None:
