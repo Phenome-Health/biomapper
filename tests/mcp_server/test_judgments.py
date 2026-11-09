@@ -337,3 +337,42 @@ async def test_a_later_failed_fetch_does_not_erase_the_usable_set(router, tmp_pa
         assert r["status"] == "fetch_failed"
         out = _ok(await _suggest(client, ref, "CHEBI:2"))
     assert out["choice_source"] == "candidate"
+
+
+async def _rerun_after_moving_outputs(client, data: Path) -> None:
+    for name in ("p.biomapper.tsv", "p.biomapper.provenance.json", "p.biomapper.weak.tsv"):
+        (data / name).rename(data / f"moved.{name}")
+    job = _ok(await client.call_tool("map_file", {"path": str(data / "p.tsv"),
+                                                  "name_column": "name", "entity_type": ST,
+                                                  "rerun": True}))
+    for _ in range(500):
+        st = _ok(await client.call_tool("job_status", {"job_id": job["job_id"]}))["jobs"][0]
+        if st["state"] == "complete":
+            return
+        await asyncio.sleep(0.02)
+    raise AssertionError("rerun never completed")
+
+
+async def test_a_rerun_removes_the_server_owned_choices_tsv(router, tmp_path) -> None:
+    data = tmp_path / "data"
+    data.mkdir()
+    config = make_config(tmp_path, env_roots=[data])
+    _job_routes(router)
+    async with Client(build_server(config)) as client:
+        await _finished_job(client, data, ["a"])
+        _ok(await _suggest(client, _weak_refs(data)["a"], "CHEBI:1"))
+        assert (data / "p.biomapper.choices.tsv").is_file()
+        await _rerun_after_moving_outputs(client, data)
+    assert not (data / "p.biomapper.choices.tsv").exists(), "old picks describe the previous run"
+
+
+async def test_a_rerun_leaves_an_unmarked_choices_tsv_alone(router, tmp_path) -> None:
+    data = tmp_path / "data"
+    data.mkdir()
+    config = make_config(tmp_path, env_roots=[data])
+    _job_routes(router)
+    async with Client(build_server(config)) as client:
+        await _finished_job(client, data, ["a"])
+        (data / "p.biomapper.choices.tsv").write_text("my own notes\n")
+        await _rerun_after_moving_outputs(client, data)
+    assert (data / "p.biomapper.choices.tsv").read_text() == "my own notes\n"

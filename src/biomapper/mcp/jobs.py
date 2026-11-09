@@ -338,6 +338,9 @@ class Job:
     created_utc: str = ""
     updated_utc: str = ""
     completed_utc: str | None = None
+    # sha256 of the weak.tsv this job placed, recorded before placing it. An interrupted final
+    # write leaves that file without the main output; this lets recovery tell it is ours.
+    weak_sha256: str | None = None
 
     @property
     def output(self) -> Path:
@@ -722,9 +725,14 @@ class JobManager:
             )
         return target
 
-    def _check_output_free(self, job: Job, *, own_partial: bool = False) -> None:
-        """Refuse if any output path is taken. ``own_partial``: the partial is this job's."""
-        paths = [job.output, job.provenance, job.weak_path] + (
+    def _check_output_free(
+        self, job: Job, *, own_partial: bool = False, own_weak: bool = False
+    ) -> None:
+        """Refuse if any output path is taken.
+
+        ``own_partial``/``own_weak``: the partial or weak.tsv is the replaced job's own.
+        """
+        paths = [job.output, job.provenance] + ([] if own_weak else [job.weak_path]) + (
             [] if own_partial else [job.partial]
         )
         for out in paths:
@@ -827,7 +835,9 @@ class JobManager:
             seconds_per_entity=self.config.seconds_per_entity_seed,
             created_utc=_utc(self.config.wall_clock()),
         )
-        self._check_output_free(job, own_partial=existing is not None and rerun)
+        replacing = existing is not None and rerun
+        own_weak = replacing and existing is not None and self._own_weak(existing)
+        self._check_output_free(job, own_partial=replacing, own_weak=own_weak)
         problem = await self._health_ok()
         if problem is not None:
             raise JobError(f"Not queued: {problem}")
@@ -839,6 +849,12 @@ class JobManager:
             if self._busy_job == job_id:  # started while the health check awaited
                 raise JobError(f"Job {job_id} started running meanwhile; cancel it, then rerun.")
             self._forget(job_id)
+            if own_weak and self._own_weak(existing):
+                existing.weak_path.unlink(missing_ok=True)
+            # The old picks name refs the rmtree below deletes and describe the previous run.
+            # Only the server-owned file goes; a user's own file at that name is left alone.
+            if self._is_server_choices(existing.choices_path):
+                existing.choices_path.unlink(missing_ok=True)
             shutil.rmtree(jdir, ignore_errors=True)
             existing.partial.unlink(missing_ok=True)
         _private_dir(jdir)
@@ -1009,8 +1025,11 @@ class JobManager:
                 "map_file again (the new content gets a new job).",
             )
         rows = await anyio.to_thread.run_sync(_read_rows, source, job.options)
-        if any(p.exists() or p.is_symlink()
-               for p in (job.output, job.provenance, job.weak_path)):
+        taken = [p for p in (job.output, job.provenance, job.weak_path)
+                 if p.exists() or p.is_symlink()]
+        # weak.tsv alone, and the one this job placed: a final write was interrupted after it.
+        # _write_final rebuilds it from the same cache.
+        if taken and not (taken == [job.weak_path] and self._own_weak(job)):
             self._finish(
                 job, "failed",
                 f"{job.output.name} or its provenance or weak.tsv file now exists and map_file "
@@ -1187,9 +1206,14 @@ class JobManager:
         self, job: Job, rows: list[InputRow], cache: EntityCache, pins: dict[str, Any]
     ) -> None:
         out = job.output
-        for taken in (out, job.provenance, job.weak_path):
+        for taken in (out, job.provenance):
             if taken.exists() or taken.is_symlink():
                 raise JobError(f"{taken} appeared while the job ran; not overwritten.")
+        weak = job.weak_path
+        if weak.exists() or weak.is_symlink():
+            if not self._own_weak(job):
+                raise JobError(f"{weak} appeared while the job ran; not overwritten.")
+            weak.unlink()  # left by an interrupted final write of this job; rebuilt below
         weak_rows = self._write_weak(job, rows, cache, pins)
         tmp = out.with_name(f".{out.name}.{job.job_id}.tmp")
         tmp.unlink(missing_ok=True)  # a stale temp (or a planted link) of this job only
@@ -1240,7 +1264,28 @@ class JobManager:
         job.partial.unlink(missing_ok=True)
 
 
+    def _own_weak(self, job: Job) -> bool:
+        """Whether ``weak.tsv`` is exactly the file this job placed (and not a link)."""
+        path = job.weak_path
+        if job.weak_sha256 is None or path.is_symlink() or not path.is_file():
+            return False
+        try:
+            return _sha256(path) == job.weak_sha256
+        except OSError:
+            return False
+
     # -- choices.tsv (1.7.0) ----------------------------------------------
+
+    @staticmethod
+    def _is_server_choices(path: Path) -> bool:
+        """Whether ``path`` is a regular server-owned choices file (marker on line 1)."""
+        if path.is_symlink() or not path.is_file():
+            return False
+        try:
+            with path.open(encoding="utf-8") as fh:
+                return fh.readline().rstrip("\r\n") == CHOICES_MARKER
+        except (OSError, UnicodeDecodeError):
+            return False
 
     def check_choices_writable(self, job: Job) -> None:
         """Refuse unless ``choices.tsv`` is absent or a server-owned file (marker on line 1)."""
@@ -1249,12 +1294,7 @@ class JobManager:
             raise JobError(f"{path} is a link; record_suggestion never writes through links.")
         if not path.exists():
             return
-        try:
-            with path.open(encoding="utf-8") as fh:
-                first = fh.readline().rstrip("\r\n")
-        except (OSError, UnicodeDecodeError):
-            first = ""
-        if first != CHOICES_MARKER:
+        if not self._is_server_choices(path):
             raise JobError(
                 f"{path} exists and is not the server-owned choices file, so it is left alone. "
                 "Move it away, then record the suggestion again."
@@ -1319,6 +1359,9 @@ class JobManager:
             fh.write(_tsv_line(WEAK_COLUMNS))
             for line in lines:
                 fh.write(_tsv_line(line))
+        # Record ownership BEFORE placing: a crash after placing must still find it ours.
+        job.weak_sha256 = _sha256(tmp)
+        self._save(job)
         try:
             _place_without_overwrite(tmp, weak)
         except FileExistsError:

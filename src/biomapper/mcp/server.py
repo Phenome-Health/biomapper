@@ -27,6 +27,8 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ListRootsResult
 from pydantic import BaseModel, ConfigDict, Field
 
+from biomapper._pins import KESTREL_LABEL, kg_build_label
+from biomapper._provenance import fetch_kg_build_info
 from biomapper._version import resolve_version
 from biomapper.client import BioMapperClient
 from biomapper.exceptions import BioMapperError
@@ -485,7 +487,7 @@ def build_server(config: ServerConfig | None = None) -> MCPServer[AppState]:
 
         await _await_pins(state)
         outcomes = await _gated_partial(state, [remap(r) for r in records], on_attempt=charge)
-        build = state.provenance().kg_build
+        build = await _fresh_build(state)
         return cands.GetCandidatesResult(
             results=[
                 _finish_ref(state, record, result, reason, top_n, build)
@@ -564,12 +566,40 @@ def _forbid_extra_arguments(server: MCPServer[AppState], name: str) -> None:
     tool.parameters = strict.model_json_schema(by_alias=True)
 
 
+async def _fresh_build(state: AppState, limit_s: float = 5.0) -> str:
+    """The KG build Kestrel reports now, read right after a re-map.
+
+    The startup probe can be hours old in a long-lived session; verifying a re-map against it
+    would miss a build change. A fresh read also refreshes the session's provenance. When
+    Kestrel does not answer (in ``limit_s``), the last known build is used.
+    """
+    url = state.config.kestrel_url
+    fresh: tuple[str, Any, str | None] | None = None
+    with anyio.move_on_after(limit_s):
+        fresh = await anyio.to_thread.run_sync(
+            lambda: fetch_kg_build_info(url), abandon_on_cancel=True
+        )
+    if fresh is None or fresh[2] is not None:
+        logger.warning("could not re-read the KG build; using the last known one")
+        return state.provenance().kg_build
+    version, kg, _ = fresh
+    kestrel = {"url": url, "kestrel_version": version, "kg_build": kg.model_dump(),
+               "error": None, "label": KESTREL_LABEL}
+    if state.pins is not None:
+        state.pins = {**state.pins, "kestrel": {**(state.pins.get("kestrel") or {}), **kestrel}}
+    return kg_build_label({"kestrel": kestrel})
+
+
 def _store_set(state: AppState, record: RefRecord, cset: CandidateSet) -> None:
-    if record.candidates is not None:
-        record.candidate_history.append(record.candidates)
-    record.candidates = cset
+    """Store a fetched set on the ref, merged into its latest copy on disk under its lock."""
+
+    def put(fresh: RefRecord) -> None:
+        if fresh.candidates is not None:
+            fresh.candidate_history.append(fresh.candidates)
+        fresh.candidates = cset
+
     try:
-        state.refs.save(record)
+        state.refs.update(record.ref_id, put)
     except OSError:
         logger.warning("could not store candidates on %s", record.ref_id, exc_info=True)
 
@@ -626,7 +656,8 @@ def _finish_ref(
                                             raw_sha256=raw, items=items))
         record.superseded_by = new.ref_id
         try:
-            state.refs.save(record)
+            state.refs.update(record.ref_id, lambda fresh: setattr(fresh, "superseded_by",
+                                                                  new.ref_id))
         except OSError:
             logger.warning("could not link %s to its successor", record.ref_id, exc_info=True)
         out.superseding_ref = new.ref_id

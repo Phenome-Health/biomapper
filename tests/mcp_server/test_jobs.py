@@ -1138,3 +1138,48 @@ async def test_weak_tsv_follows_the_output_name_rule(router, tmp_path, data) -> 
         await wait_state(client, job["job_id"], "complete")
     assert (data / "custom.weak.tsv").is_file()
     assert len(read_tsv(data / "custom.weak.tsv")) == 1
+
+
+def _rewind_to_interrupted_final_write(config, data: Path, job_id: str) -> None:
+    """The state a crash between placing weak.tsv and the main output leaves behind."""
+    (data / "p.biomapper.tsv").unlink()
+    (data / "p.biomapper.provenance.json").unlink()
+    job_file = config.home / "jobs" / job_id / "job.json"
+    record = json.loads(job_file.read_text())
+    assert record["weak_sha256"], "ownership must be recorded with weak.tsv"
+    record.update(state="running", completed_utc=None)
+    job_file.write_text(json.dumps(record))
+
+
+async def test_a_final_write_interrupted_after_weak_tsv_recovers_on_restart(
+    router, tmp_path, data
+) -> None:
+    router.post(f"{API}/map/batch").mock(side_effect=weak_batch({"b"}))
+    src = write_tsv(data / "p.tsv", ["a", "b"])
+    config = cfg(tmp_path, data)
+    async with Client(build_server(config)) as client:
+        job = await submit(client, src)
+        await wait_state(client, job["job_id"], "complete")
+    _rewind_to_interrupted_final_write(config, data, job["job_id"])
+    async with Client(build_server(config)) as client:
+        done = await wait_state(client, job["job_id"], "complete")
+    assert done["state"] == "complete"
+    assert [r["name"] for r in read_tsv(data / "p.biomapper.tsv")] == ["a", "b"]
+    assert [r["name"] for r in read_tsv(data / "p.biomapper.weak.tsv")] == ["b"]
+    assert (data / "p.biomapper.provenance.json").is_file()
+
+
+async def test_a_replaced_weak_tsv_still_fails_recovery(router, tmp_path, data) -> None:
+    router.post(f"{API}/map/batch").mock(side_effect=weak_batch({"b"}))
+    src = write_tsv(data / "p.tsv", ["a", "b"])
+    config = cfg(tmp_path, data)
+    async with Client(build_server(config)) as client:
+        job = await submit(client, src)
+        await wait_state(client, job["job_id"], "complete")
+    _rewind_to_interrupted_final_write(config, data, job["job_id"])
+    (data / "p.biomapper.weak.tsv").write_text("mine\n")
+    async with Client(build_server(config)) as client:
+        failed = await wait_state(client, job["job_id"], "failed")
+    assert "weak.tsv" in failed["reason"]
+    assert (data / "p.biomapper.weak.tsv").read_text() == "mine\n"
+    assert not (data / "p.biomapper.tsv").exists()

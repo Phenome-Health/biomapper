@@ -26,6 +26,7 @@ from biomapper.mcp.server import build_server
 from biomapper.models import MappingResult
 from tests.mcp_server.mcp_helpers import (
     API,
+    KESTREL,
     InFlight,
     batch_response,
     entity_response,
@@ -546,3 +547,44 @@ async def test_tool_description_carries_the_honest_guidance(router, tmp_path) ->
     assert "usually right" in desc
     assert "untrusted" in desc.lower()
     assert "3" in desc
+
+
+def test_storing_a_set_merges_into_the_latest_copy_on_disk(tmp_path) -> None:
+    """Two fetches that both loaded the ref before either stored: the first set is kept."""
+    from types import SimpleNamespace
+
+    from biomapper.mcp.references import CandidateSet
+    from biomapper.mcp.server import _store_set
+
+    config = make_config(tmp_path)
+    [ref] = _seed(config)
+    store = RefStore(config.home)
+    stale_a, stale_b = store.load(ref), store.load(ref)
+    state = SimpleNamespace(refs=store)
+    usable = CandidateSet(status="present", n=10, fetched_utc="t1")
+    failed = CandidateSet(status="fetch_failed", reason="timeout", n=10, fetched_utc="t2")
+    _store_set(state, stale_a, usable)
+    _store_set(state, stale_b, failed)
+    rec = store.load(ref)
+    assert rec.candidates == failed
+    assert rec.candidate_history == [usable]
+
+
+async def test_a_build_change_after_the_startup_probe_is_noticed(router, tmp_path) -> None:
+    config = make_config(tmp_path)
+    [ref] = _seed(config)
+    router.post(f"{API}/map/entity").mock(
+        return_value=httpx.Response(200, json=_with_candidates())
+    )
+    async with Client(build_server(config)) as client:
+        await _pins(client)
+        router.get(f"{KESTREL}/health").mock(return_value=httpx.Response(200, json={
+            "kestrel_version": "1.9",
+            "kg_build": {"kg_version": "2.4.0", "git_commit": "feedface00"},
+        }))
+        [r] = _ok(await _call(client, [ref]))["results"]
+        info = (await client.call_tool("server_info", {})).structured_content
+    assert r["status"] == "run_mismatch" and r["reason"] == "build_changed"
+    sup = RefStore(config.home).load(r["superseding_ref"])
+    assert sup.pins.kg_build == "2.4.0 (feedface)"
+    assert info["provenance"]["kg_build"] == "2.4.0 (feedface)"

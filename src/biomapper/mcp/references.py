@@ -27,8 +27,9 @@ import os
 import re
 import secrets
 import shutil
+import sys
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any, Literal
 
@@ -230,6 +231,40 @@ class RefStore:
         self.save(record)
         return record
 
+    def update(self, ref_id: str, mutate: Callable[[RefRecord], None]) -> RefRecord:
+        """Reload ``ref_id`` from disk under its per-ref lock, apply ``mutate``, save it.
+
+        A caller's in-memory copy may be stale: two get_candidates calls (in this process or in
+        another server process on the same home) can both load a ref before either stores what it
+        fetched. Merging into the copy on disk keeps the other call's set in the history instead
+        of overwriting it. Raises ``OSError`` when the ref can no longer be read or written.
+        """
+        path = self.path_for(ref_id)
+        with self._ref_lock(path):
+            try:
+                record = RefRecord.model_validate_json(path.read_text(encoding="utf-8"))
+            except ValueError as exc:
+                raise OSError(f"reference {ref_id} is unreadable: {exc}") from None
+            if record.ref_id != ref_id:
+                raise OSError(f"reference {ref_id} is unreadable")
+            mutate(record)
+            self.save(record)
+        return record
+
+    @staticmethod
+    @contextlib.contextmanager
+    def _ref_lock(path: Path) -> Iterator[None]:
+        lock_path = path.with_name(f".{path.name}.lock")
+        fd = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o600)
+        try:
+            _lock(fd)
+            try:
+                yield
+            finally:
+                _unlock(fd)
+        finally:
+            os.close(fd)
+
     def save(self, record: RefRecord) -> None:
         path = self.path_for(record.ref_id)
         if parse_ref(record.ref_id)[0] == "interactive":
@@ -272,8 +307,11 @@ class RefStore:
         return self._clock() - created_ts > self.ttl_s
 
     def _delete(self, ref_id: str) -> None:
+        path = self.path_for(ref_id)
         with contextlib.suppress(OSError):
-            self.path_for(ref_id).unlink()
+            path.unlink()
+        with contextlib.suppress(OSError):
+            path.with_name(f".{path.name}.lock").unlink()
         shutil.rmtree(self.judgments_dir(ref_id), ignore_errors=True)
 
     def _maybe_gc(self) -> None:
@@ -303,3 +341,23 @@ class RefStore:
                 self._delete(ref_id)
                 removed += 1
         return removed
+
+
+if sys.platform == "win32":  # pragma: no cover - exercised on Windows only
+    import msvcrt
+
+    def _lock(fd: int) -> None:
+        msvcrt.locking(fd, msvcrt.LK_LOCK, 1)
+
+    def _unlock(fd: int) -> None:
+        os.lseek(fd, 0, os.SEEK_SET)
+        msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+
+else:
+    import fcntl
+
+    def _lock(fd: int) -> None:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+
+    def _unlock(fd: int) -> None:
+        fcntl.flock(fd, fcntl.LOCK_UN)
