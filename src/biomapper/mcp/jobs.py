@@ -848,9 +848,14 @@ class JobManager:
         if existing is not None and rerun:
             if self._busy_job == job_id:  # started while the health check awaited
                 raise JobError(f"Job {job_id} started running meanwhile; cancel it, then rerun.")
+            weak = existing.weak_path
+            if own_weak and not self._own_weak(existing) and (weak.exists() or weak.is_symlink()):
+                # Changed during the health check: queuing would only fail after the full run.
+                raise JobError(f"{weak} changed meanwhile and is left alone; move it away, "
+                               "then rerun.")
             self._forget(job_id)
-            if own_weak and self._own_weak(existing):
-                existing.weak_path.unlink(missing_ok=True)
+            if own_weak:
+                weak.unlink(missing_ok=True)
             # The old picks name refs the rmtree below deletes and describe the previous run.
             # Only the server-owned file goes; a user's own file at that name is left alone.
             if self._is_server_choices(existing.choices_path):
