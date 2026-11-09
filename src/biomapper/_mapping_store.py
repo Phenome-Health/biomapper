@@ -144,9 +144,16 @@ def _acquire_lock(directory: Path, session_id: str) -> Path:
             holder = json.loads(path.read_text())
         except (OSError, json.JSONDecodeError):
             holder = {}
+        if not isinstance(holder, dict):
+            holder = {}
         pid = holder.get("pid")
         started = holder.get("started_utc", "unknown time")
-        if isinstance(pid, int) and not _pid_alive(pid):
+        if not isinstance(pid, int):
+            state = (
+                f"its lock file names no holder (unreadable or empty, e.g. a run killed while "
+                f"taking it). If no harmonize_many run is active, delete {path} and run again"
+            )
+        elif not _pid_alive(pid):
             state = (
                 f"held by pid {pid} since {started}, which is not running on this machine. If no "
                 f"harmonize_many run is active, delete {path} and run again"

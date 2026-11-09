@@ -181,6 +181,18 @@ def test_a_stale_lock_is_reported_not_broken(tmp_path) -> None:
     assert lock.exists()
 
 
+@pytest.mark.parametrize("content", ["", "not json", "[1, 2]", '{"pid": "x"}'])
+def test_an_unreadable_lock_says_how_to_recover_not_to_wait(tmp_path, content) -> None:
+    with open_store(tmp_path) as store:
+        lock = store.arm("names_only").directory / LOCK_FILENAME
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    lock.write_text(content)
+    with pytest.raises(StoreLocked, match="names no holder") as excinfo:
+        open_store(tmp_path)
+    assert "wait for that run" not in str(excinfo.value)
+    assert lock.exists()
+
+
 def test_a_caching_mapper_returning_one_shared_object_yields_distinct_copies(tmp_path) -> None:
     shared = mr("glucose", "CHEBI:17234")
 
