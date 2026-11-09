@@ -592,6 +592,12 @@ s["identifier_arm_skipped"]                      # HMDB is not declared by tartu
 s["publication_grade"]                           # iteration-grade, not for publication
 ```
 
+A custom `mapper=` keeps its saved mappings apart from the hosted API's, keyed by its identity: a
+plain module-level function is identified by its name, and a `functools.partial` by the wrapped
+function plus its arguments. A mapper whose settings biomapper cannot see (a callable object, a
+bound method, a lambda or closure, or a partial with non-JSON arguments) is mapped fresh on every
+run, with a warning, unless it has a `store_id` attribute naming its configuration.
+
 What it reports, per arm (names-only always; the identifier arm when a vocabulary is shared):
 
 - **Node groups** (`matrix_<arm>.tsv`, one row per node and one column per cohort, and

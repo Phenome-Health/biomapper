@@ -44,6 +44,9 @@ class FakeMapper:
 
     resolve: Resolver
     calls: list[Call] = field(default_factory=list)
+    # A callable object's settings are invisible to harmonize_many(), so it only reuses saved
+    # mappings under an explicit identity.
+    store_id: str = "tests.FakeMapper"
 
     def __call__(
         self, records: list[dict[str, Any]], *, entity_type: str, annotation_mode: str

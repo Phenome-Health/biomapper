@@ -399,3 +399,72 @@ def test_an_injected_mapper_never_shares_saved_mappings_with_the_api(tmp_path) -
     report = many(cohorts, api, tmp_path)
     assert sorted(s[0] for s in api.inner.sent) == ["Glucose", "glucose"]
     assert not any(p["n_reused"] for by in report.mapping.values() for p in by.values())
+
+
+# --- Greptile round 3: mapper settings, publication grade, re-export provenance -------------
+
+
+def _fn_mapper(records, *, entity_type, annotation_mode, table=None):  # noqa: ANN001, ANN201
+    return [mr(r["name"], (table or {}).get(r["name"])) for r in records]
+
+
+def test_partial_mappers_with_different_settings_get_different_identities() -> None:
+    import functools
+
+    from biomapper.many_cohorts import _mapper_identity
+
+    a = functools.partial(_fn_mapper, table={"glucose": "CHEBI:1"})
+    b = functools.partial(_fn_mapper, table={"glucose": "CHEBI:2"})
+    a2 = functools.partial(_fn_mapper, table={"glucose": "CHEBI:1"})
+    assert _mapper_identity(a) != _mapper_identity(b)
+    assert _mapper_identity(a) == _mapper_identity(a2)
+    assert _mapper_identity(_fn_mapper) == f"{__name__}._fn_mapper"
+
+
+@pytest.mark.parametrize("make", [
+    lambda: type("Configured", (), {"__call__": lambda self, records, **kw: []})(),
+    lambda: (lambda records, **kw: []),
+    lambda: __import__("functools").partial(_fn_mapper, table=object()),
+])
+def test_mappers_whose_settings_cannot_be_fingerprinted_have_no_identity(make) -> None:
+    from biomapper.many_cohorts import _mapper_identity
+
+    assert _mapper_identity(make()) is None
+
+
+def test_an_unfingerprintable_mapper_neither_saves_nor_reuses(tmp_path) -> None:
+    class Configured:
+        def __init__(self, table: dict) -> None:
+            self.inner = FakeMapper(by_name(table))
+
+        def __call__(self, records, **kw):  # noqa: ANN001, ANN003, ANN204
+            return self.inner(records, **kw)
+
+    cohorts = {"a": toy("glucose"), "b": toy("Glucose")}
+    first = Configured(TABLE)
+    with pytest.warns(UserWarning, match="store_id"):
+        many(cohorts, first, tmp_path)
+    second = Configured(TABLE)
+    with pytest.warns(UserWarning, match="store_id"):
+        report = many(cohorts, second, tmp_path)
+    assert sorted(s[0] for s in second.inner.sent) == ["Glucose", "glucose"]
+    assert not any(p["n_reused"] for by in report.mapping.values() for p in by.values())
+    assert any("store_id" in w for w in report.warnings)
+
+
+def test_remap_all_on_a_version_without_a_commit_is_not_publishable(tmp_path) -> None:
+    pins = {"kestrel": {"kestrel_version": "1.0", "kg_build": {"kg_version": "2.3.0"}}}
+    cohorts = {"a": toy("glucose"), "b": toy("Glucose")}
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        report = many(cohorts, FakeMapper(by_name(TABLE)), tmp_path, pins=pins, remap_all=True)
+    assert report.grade == "iteration-grade, not for publication"
+
+
+def test_write_to_a_new_directory_includes_the_provenance_files(tmp_path) -> None:
+    cohorts = {"a": toy("glucose"), "b": toy("Glucose")}
+    report = many(cohorts, FakeMapper(by_name(TABLE)), tmp_path, save=False)
+    out = report.write(tmp_path / "export")
+    for label in ("a", "b"):
+        written = json.loads((out / f"provenance_names_only_{label}.json").read_text())
+        assert written == report.mapping["names_only"][label]

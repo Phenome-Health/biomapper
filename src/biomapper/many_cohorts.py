@@ -32,10 +32,12 @@ from __future__ import annotations
 
 import csv
 import functools
+import hashlib
 import json
 import os
 import shutil
 import sys
+import types
 import uuid
 import warnings
 from collections import Counter
@@ -286,6 +288,9 @@ class ManyCohortReport:
         directory.mkdir(parents=True, exist_ok=True)
         for arm in self.arms.values():
             _write_arm(directory, arm, self.labels)
+        for arm_name, by_label in self.mapping.items():
+            for label, provenance in by_label.items():
+                _write_json(directory / f"provenance_{arm_name}_{_safe(label)}.json", provenance)
         if self.diff is not None:
             _write_tsv(
                 directory / "diff.tsv", ["node", "found_by"],
@@ -447,18 +452,34 @@ def _require_labels(labels: Sequence[str]) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _mapper_identity(mapper: Any) -> str:  # noqa: ANN401 — any mapper callable
-    """A stable name for an injected mapper: ``store_id`` if it has one, else module.qualname."""
+def _mapper_identity(mapper: Any) -> str | None:  # noqa: ANN401 — any mapper callable
+    """A stable name for an injected mapper's configuration, or ``None`` if there is none.
+
+    An explicit ``store_id`` attribute always wins. Otherwise the identity is the wrapped
+    function's ``module.qualname``, plus a digest of any ``functools.partial`` arguments, so two
+    partials over the same function with different settings never share saved mappings. A mapper
+    whose settings cannot be fingerprinted returns ``None`` (no saved reuse): a callable object, a
+    bound method, a lambda or closure, or a partial with arguments that are not plain JSON values.
+    """
     explicit = getattr(mapper, "store_id", None)
     if isinstance(explicit, str) and explicit.strip():
         return explicit.strip()
-    # A functools.partial has no __qualname__; name the wrapped function, not "functools.partial"
-    # (which every partial-wrapped mapper would otherwise share).
+    bound: list[Any] = []
     while isinstance(mapper, functools.partial):
+        bound.append([list(mapper.args), dict(mapper.keywords)])
         mapper = mapper.func
-    target = mapper if hasattr(mapper, "__qualname__") else type(mapper)
-    module = getattr(target, "__module__", None) or "unknown"
-    return f"{module}.{getattr(target, '__qualname__', type(mapper).__name__)}"
+    if not isinstance(mapper, types.FunctionType):
+        return None
+    if mapper.__closure__ or "<lambda>" in mapper.__qualname__ or "<locals>" in mapper.__qualname__:
+        return None
+    name = f"{mapper.__module__ or 'unknown'}.{mapper.__qualname__}"
+    if not bound:
+        return name
+    try:
+        blob = json.dumps(bound[::-1], sort_keys=True, allow_nan=False)
+    except (TypeError, ValueError):
+        return None
+    return f"{name}+{hashlib.sha256(blob.encode()).hexdigest()[:12]}"
 
 
 def _drilldown_writer(stack: ExitStack, directory: Path | None, arm: str) -> tuple[
@@ -567,7 +588,8 @@ def harmonize_many(
     )
     # A custom mapper's saved answers are kept apart from the hosted API's (and from each other),
     # so a toy or test mapper can never be replayed as API output by a later run.
-    mapper_id = None if isinstance(the_mapper, BatchedApiMapper) else _mapper_identity(the_mapper)
+    custom_mapper = not isinstance(the_mapper, BatchedApiMapper)
+    mapper_id = _mapper_identity(the_mapper) if custom_mapper else None
     run_pins = {**pin_block, "mapper": type(the_mapper).__name__,
                 "mapper_pins": getattr(the_mapper, "pins", None)}
     session_id = uuid.uuid4().hex
@@ -581,6 +603,18 @@ def harmonize_many(
         store_root = None
 
     run_warnings: list[str] = []
+    if custom_mapper and mapper_id is None and store_root is not None:
+        # Its settings could change between runs without changing any name we can see, so a
+        # saved answer could be replayed for a differently configured mapper.
+        store_root = None
+        message = (
+            "the injected mapper's settings cannot be fingerprinted (a callable object, bound "
+            "method, lambda or closure, or a functools.partial with non-JSON arguments), so its "
+            "mappings are neither saved nor reused; set a `store_id` attribute on it naming its "
+            "configuration to enable reuse"
+        )
+        run_warnings.append(f"{message}.")
+        warnings.warn(message, UserWarning, stacklevel=2)
 
     def say(message: str) -> None:
         if progress:
@@ -712,7 +746,9 @@ def harmonize_many(
         errored = sum(p["n_errored"] for p in mapping[ARM_NAMES_ONLY].values())
         status = "failed" if all_rows and errored == all_rows else "partial" if any(
             p["n_errored"] for by in mapping.values() for p in by.values()) else "ok"
-        grade = (GRADE_PUBLISHABLE if remap_all and not reused_any and kg_verified(pin_block)
+        grade = (GRADE_PUBLISHABLE
+                 if remap_all and not reused_any and kg_verified(pin_block)
+                 and pin_known(store.pin)
                  else GRADE_ITERATION)
 
         settings: dict[str, Any] = {

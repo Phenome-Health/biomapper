@@ -73,6 +73,7 @@ class NameReplayMapper:
     """Serves recorded names-only results; any request with identifiers fails loudly."""
 
     def __init__(self, entity: str) -> None:
+        self.store_id = f"tests.NameReplayMapper.{entity}"
         self.entity = entity
         self.sent: list[str] = []
 

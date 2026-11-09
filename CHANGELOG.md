@@ -24,7 +24,10 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   vocabularies every cohort declares are supplied as mapping input (the identifier arm, diffed by
   node). A run that reused saved mappings is labelled `iteration-grade, not for publication`; only
   a `remap_all=True` run on a verified build is `publishable`. Saved by default to
-  `biomapper_runs/harmonize_many_<UTC stamp>/`. `harmonize_cohorts()` and `harmonize()` are
+  `biomapper_runs/harmonize_many_<UTC stamp>/`. A custom `mapper=` reuses saved mappings only
+  under an identity that captures its settings (a plain function's name, a `functools.partial`'s
+  arguments, or an explicit `store_id`); any other mapper is mapped fresh, with a warning. A
+  `publishable` grade also requires the KG build's git commit. `harmonize_cohorts()` and `harmonize()` are
   unchanged. New offline modules `biomapper.harmonize.nway` and `biomapper.harmonize.idcheck`;
   new `biomapper.harmonize.curies.is_structure_curie` and `normalize_hmdb`.
 - **`scripts/harmonize_many_split_recall.py`**: the split-recall gate. On a NECS x Arivale answer
