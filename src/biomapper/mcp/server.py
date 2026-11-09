@@ -204,16 +204,19 @@ async def _gated_partial(
     calls: list[Callable[[], Awaitable[T]]],
     *,
     on_attempt: Callable[[], None],
+    deadline_s: float | None = None,
 ) -> list[Outcome[T]]:
     """Run several requests under ONE wall-clock deadline, one gate hold each, never all-or-nothing.
 
     Unlike :func:`_gated`, a failure is a per-call reason, not a ToolError: ``deadline`` for every
     call the deadline cut off (including one in flight), ``busy`` when the gate stayed held (by a
     job chunk) past ``gate_wait_s``, and otherwise the HTTP or transport class of the failure.
-    ``on_attempt`` runs as each call starts, which is when it is charged.
+    ``on_attempt`` runs as each call starts, which is when it is charged. ``deadline_s`` defaults
+    to the tool deadline; callers that spend part of that budget elsewhere pass what is left.
     """
     outcomes: list[Outcome[T]] = [(None, "deadline")] * len(calls)
-    with anyio.move_on_after(state.config.tool_deadline_s):
+    limit = state.config.tool_deadline_s if deadline_s is None else max(0.0, deadline_s)
+    with anyio.move_on_after(limit):
         for index, call in enumerate(calls):
             on_attempt()
             try:
@@ -485,9 +488,18 @@ def build_server(config: ServerConfig | None = None) -> MCPServer[AppState]:
             except CandidateBudgetExhausted as exc:  # pre-checked; only a race lands here
                 raise ToolError(str(exc)) from None
 
-        await _await_pins(state)
-        outcomes = await _gated_partial(state, [remap(r) for r in records], on_attempt=charge)
-        build = await _fresh_build(state)
+        # One budget for the whole call (Greptile #44): the pin wait, the re-maps and the build
+        # re-read all come out of tool_deadline_s, so partial results return before a client's
+        # ~60 s cancel instead of 5 + 50 + 5 s in the worst case.
+        total = state.config.tool_deadline_s
+        side = min(5.0, 0.1 * total)  # each of the pin wait and the build re-read
+        end = anyio.current_time() + total
+        await _await_pins(state, limit_s=side)
+        outcomes = await _gated_partial(
+            state, [remap(r) for r in records], on_attempt=charge,
+            deadline_s=end - anyio.current_time() - side,
+        )
+        build = await _fresh_build(state, limit_s=max(0.0, end - anyio.current_time()))
         return cands.GetCandidatesResult(
             results=[
                 _finish_ref(state, record, result, reason, top_n, build)

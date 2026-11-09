@@ -27,6 +27,7 @@ from biomapper.models import MappingResult
 from tests.mcp_server.mcp_helpers import (
     API,
     KESTREL,
+    KG_BUILD,
     InFlight,
     batch_response,
     entity_response,
@@ -373,6 +374,37 @@ async def test_a_deadline_after_ref_1_returns_partial_results(router, tmp_path) 
     assert [(r["status"], r["reason"]) for r in out["results"]] == [
         ("present", None), ("fetch_failed", "deadline"), ("fetch_failed", "deadline"),
     ]
+
+
+async def test_the_whole_call_fits_one_deadline_even_with_a_slow_build_check(
+    router, tmp_path
+) -> None:
+    """Greptile #44: pin wait + re-maps + build re-read must share tool_deadline_s, not add up."""
+    import time
+
+    config = make_config(tmp_path, tool_deadline_s=1.0)
+    refs = _seed(config, 2)
+    health_calls = {"n": 0}
+
+    def slow_after_startup(request):
+        health_calls["n"] += 1
+        if health_calls["n"] > 1:  # the startup probe stays fast; the post-remap re-read is slow
+            time.sleep(3)
+        return httpx.Response(200, json={"kestrel_version": "1.9", "kg_build": KG_BUILD})
+
+    async def slow_map(request):
+        await asyncio.sleep(3)
+        return httpx.Response(200, json=_with_candidates())
+
+    router.get(f"{KESTREL}/health").mock(side_effect=slow_after_startup)
+    router.post(f"{API}/map/entity").mock(side_effect=slow_map)
+    async with Client(build_server(config)) as client:
+        await _pins(client)
+        started = time.monotonic()
+        out = _ok(await _call(client, refs))
+        elapsed = time.monotonic() - started
+    assert elapsed < 1.0 + 0.5, f"call took {elapsed:.2f} s against a 1.0 s budget"
+    assert {r["reason"] for r in out["results"]} == {"deadline"}
 
 
 async def test_http_failures_are_per_ref_statuses_not_tool_errors(router, tmp_path) -> None:
