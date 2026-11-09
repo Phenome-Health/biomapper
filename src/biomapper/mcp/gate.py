@@ -113,3 +113,59 @@ class LoopGuard:
         """Un-count a call that never reached the API (e.g. refused as busy)."""
         with contextlib.suppress(ValueError):
             self._calls.remove(token)
+
+
+DEFAULT_CANDIDATE_BUDGET = 15
+DEFAULT_CANDIDATE_WINDOW_S = 300.0
+
+
+class CandidateBudgetExhausted(Exception):
+    """Too many candidate refs fetched in the rolling window."""
+
+
+class CandidateBudget:
+    """Sliding-window budget on candidate refs (1.7.0), separate from :class:`LoopGuard`.
+
+    Each candidate ref is a full re-map with Kestrel passthrough, so it is charged when it is
+    attempted. Keeping it apart from the loop guard means reviewing weak rows never locks an
+    agent out of ordinary lookups, and lookups never eat the review budget.
+    """
+
+    def __init__(
+        self,
+        limit: int = DEFAULT_CANDIDATE_BUDGET,
+        window_s: float = DEFAULT_CANDIDATE_WINDOW_S,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
+        if limit < 1:
+            raise ValueError("candidate budget must be at least 1")
+        if window_s <= 0:
+            raise ValueError("candidate budget window must be positive")
+        self.limit = limit
+        self.window_s = window_s
+        self._clock = clock
+        self._charges: deque[float] = deque()
+
+    def _expire(self, now: float) -> None:
+        while self._charges and now - self._charges[0] >= self.window_s:
+            self._charges.popleft()
+
+    def available(self) -> int:
+        self._expire(self._clock())
+        return self.limit - len(self._charges)
+
+    def refusal(self, wanted: int) -> str:
+        minutes = self.window_s / 60
+        return (
+            f"Refused: candidate lookups are limited to {self.limit} refs per {minutes:g} "
+            f"minutes, and {self.available()} remain (this call asked for {wanted}). Each ref "
+            f"re-maps the entity on the shared BioMapper deployment. Review the most important "
+            f"weak rows first, and retry later for the rest."
+        )
+
+    def charge(self) -> None:
+        now = self._clock()
+        self._expire(now)
+        if len(self._charges) >= self.limit:
+            raise CandidateBudgetExhausted(self.refusal(1))
+        self._charges.append(now)

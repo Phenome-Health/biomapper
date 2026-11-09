@@ -32,6 +32,46 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   true pairs land in a node group, in the cross-node queue or in neither, by name-equal and
   different-name strata, saved by default with pins and checksums. A live run the operator starts.
 
+## [1.7.0] - 2026-11-09
+
+### Added
+
+- **MCP: weak results are flagged with a reference.** A result is weak when it is `unresolved`
+  or `refused`, its certificate is `uncorroborated` or `contradicted`, or (small molecules only:
+  `biolink:SmallMolecule`, `metabolite`, `lipid`) its certificate is `unavailable`. Weak results
+  from `map_entity` and `map_batch` gain `weak: true` and an opaque `ref`. `unavailable` counts
+  for small molecules because the 2026-11-09 spike found the engine right on 0 of 11 such rows;
+  it does not count for genes or proteins. Refs are one owner-only file per record under
+  `BIOMAPPER_MCP_HOME` (interactive refs expire after 30 days; job refs live with their job) and
+  hold the original query and options, the engine's answer with its full equivalent ids, the
+  weak trigger and the KG build.
+- **MCP: `map_file` writes `<output>.weak.tsv`** (the weak rows with their refs, header only when
+  there are none) before the main output. Like the main output it is never overwritten, and an
+  existing one refuses the job at submit. The provenance JSON gains a `weak` block.
+- **MCP: `get_candidates(refs, n=10)`.** For up to 3 weak refs per call, re-maps through the same
+  endpoint family as the original (`/map/entity` or a batch of one) with the engine's Kestrel
+  passthrough (`n` up to 25), checks the re-map against the ref (KG build first, then the engine's
+  choice and certificate), and returns candidates deduped by CURIE, marked `equals`/`equivalent`
+  from the full equivalent-id set, with untrusted names and synonyms sanitized and capped.
+  Per-ref statuses are `present`, `none_searched`, `fetch_failed` (with a reason) and
+  `run_mismatch` (with a superseding ref); a deadline or a busy gate returns partial results
+  rather than an error. Candidate lookups have their own budget of 15 refs per 5 minutes,
+  separate from the loop guard. The engine's choice and the main output never change.
+- **MCP: `record_suggestion(ref, choice, rationale)`.** Records the agent's pick for a weak ref
+  (a CURIE from its latest usable candidate set, the engine's choice, or `none`), keeping
+  superseded history. Unknown arguments such as `status` are rejected by the input schema. For
+  `map_file` refs it rewrites the server-owned `<output>.choices.tsv`, which starts with a marker
+  line; a file without the marker is never touched. Suggestions are agent opinions, not
+  BioMapper resolutions.
+
+### Changed
+
+- **MCP `outputSchema`:** `EntityResult` (inside `map_entity` and `map_batch` results) gains two
+  optional properties, `weak` and `ref`. They are omitted from strong rows, whose
+  `structuredContent` and text content are byte-identical to 1.6.3.
+- **Dependency floor:** `pydantic >=2.12,<3` (was `^2.0`), for `Field(exclude_if=...)`. The MCP SDK
+  already required 2.12, so `uvx biomapper` installs are unaffected.
+
 ## [1.6.3] - 2026-11-06
 
 ### Added
