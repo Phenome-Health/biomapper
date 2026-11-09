@@ -6,7 +6,8 @@ mapped to. :func:`check_identifiers` compares them with that node:
 
 * Each declared ``vocabulary:code`` is normalized like the linker's CURIEs (:func:`normalize_curie`,
   so ``KEGG.COMPOUND`` equals ``KEGG``) and legacy 5-digit HMDB codes are zero-padded. A cell that
-  already carries its prefix (``CHEBI:15422`` under CHEBI) is used as it is.
+  already carries its prefix (``CHEBI:15422`` under CHEBI, or an alias such as
+  ``KEGG.COMPOUND:C00031`` under KEGG) is used as it is.
 * The result is compared with the node's identifier-only CURIE set (``curie_set``: the chosen ID
   plus its equivalents). Declared InChIKeys are compared, full key, with the node's ``INCHIKEY``
   equivalents, because ``curie_set`` drops structure namespaces.
@@ -25,7 +26,12 @@ import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
-from biomapper.harmonize.curies import curie_set, normalize_curie, normalize_hmdb
+from biomapper.harmonize.curies import (
+    canonical_prefix,
+    curie_set,
+    normalize_curie,
+    normalize_hmdb,
+)
 from biomapper.models import MappingResult
 
 __all__ = ["COMPARISON_RULE", "ID_CHECK_STATUSES", "IdCheck", "check_identifiers"]
@@ -48,7 +54,10 @@ class IdCheck:
 
 def _declared_curie(vocabulary: str, code: str) -> str | None:
     code = code.strip()
-    if code.upper().startswith(f"{vocabulary.upper()}:"):
+    prefix = code.split(":", 1)[0].strip().upper() if ":" in code else None
+    # Compare canonical prefixes, so a cell already carrying an aliased prefix
+    # (``KEGG.COMPOUND:C00031`` under the folded ``KEGG``) is not prefixed a second time.
+    if prefix is not None and canonical_prefix(prefix) == canonical_prefix(vocabulary.upper()):
         curie = normalize_curie(code)
     else:
         curie = normalize_curie(f"{vocabulary}:{code}")

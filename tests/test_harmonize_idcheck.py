@@ -93,3 +93,15 @@ def test_statuses_are_a_closed_set() -> None:
 )
 def test_normalize_hmdb(raw: str, expected: str) -> None:
     assert normalize_hmdb(raw) == expected
+
+
+
+@pytest.mark.parametrize(("vocab", "code", "equivalents"), [
+    ("KEGG", "KEGG.COMPOUND:C00031", {"KEGG": ["KEGG:C00031"]}),
+    ("PUBCHEM", "PUBCHEM.COMPOUND:5793", {"PUBCHEM.COMPOUND": ["PUBCHEM.COMPOUND:5793"]}),
+])
+def test_a_cell_carrying_an_aliased_prefix_is_not_prefixed_again(
+    vocab: str, code: str, equivalents: dict
+) -> None:
+    check = check_identifiers({vocab: [code]}, mr("glucose", "CHEBI:17234", equivalents))
+    assert check.status == "confirmed"

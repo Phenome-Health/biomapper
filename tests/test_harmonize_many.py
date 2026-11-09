@@ -373,3 +373,29 @@ def test_import_works_without_pandas() -> None:
     )
     proc = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
     assert proc.returncode == 0, proc.stderr
+
+
+@pytest.mark.parametrize("label", ["node", "clean", "broad", "n_cohorts", "Multiplicity"])
+def test_a_label_that_collides_with_a_fixed_matrix_column_is_refused(tmp_path, label) -> None:
+    cohorts = {label: toy("glucose"), "b": toy("Glucose")}
+    with pytest.raises(ValueError, match="reserved"):
+        many(cohorts, FakeMapper(by_name(TABLE)), tmp_path)
+
+
+def test_an_injected_mapper_never_shares_saved_mappings_with_the_api(tmp_path) -> None:
+    from biomapper.cohorts import BatchedApiMapper
+
+    cohorts = {"a": toy("glucose"), "b": toy("Glucose")}
+    many(cohorts, FakeMapper(by_name(TABLE)), tmp_path)
+
+    class ApiReplay(BatchedApiMapper):
+        def __init__(self) -> None:
+            self.inner = FakeMapper(by_name(TABLE))
+
+        def __call__(self, records, **kw):  # noqa: ANN001, ANN003, ANN204
+            return self.inner(records, **kw)
+
+    api = ApiReplay()
+    report = many(cohorts, api, tmp_path)
+    assert sorted(s[0] for s in api.inner.sent) == ["Glucose", "glucose"]
+    assert not any(p["n_reused"] for by in report.mapping.values() for p in by.values())

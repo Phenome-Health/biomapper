@@ -9,11 +9,14 @@ the MCP server resumes file jobs from, and over the MCP server's pin rules:
   per entity by :func:`~biomapper._checkpoint.cache_key` over the name, the identifiers sent and
   the request options, never by cohort label, so two analyses that both call a table "QMDiab"
   cannot collide, and a torn tail or an errored row costs only those entities.
+* **One store per mapper.** Mappings from an injected ``mapper`` are kept under
+  ``custom_mappers/<mapper id>/`` inside ``store_dir``, apart from the hosted API's, so toy or test
+  answers are never served to a later run against the API (or vice versa).
 * **The KG build is read before any request.** A known build that differs from the saved one is
   refused before anything is sent (:class:`StoreBuildMismatch`), naming ``remap_all=True`` as the
-  way out. An unknown build (Kestrel unreachable, or not probed) disables reuse: the run maps
-  fresh, saves nothing, and says why, because answers whose build cannot be named must not be
-  served to a later run as if it could.
+  way out. An unknown build (Kestrel unreachable, not probed, or no git commit reported) disables
+  reuse: the run maps fresh, saves nothing, and says why, because answers whose build cannot be
+  named must not be served to a later run as if it could.
 * **One writer at a time.** A lockfile created with ``O_EXCL`` beside each cache guards it. A
   second run that finds it held is refused (:class:`StoreLocked`) with the holder's pid and start
   time; a lock whose process is gone is reported, never silently broken.
@@ -91,8 +94,15 @@ def store_pin(
 
 
 def pin_known(pin: dict[str, Any] | None) -> bool:
-    """Whether a pin names a real KG build (unknown builds are never reused)."""
-    return bool(pin) and (pin or {}).get("kg_version", UNKNOWN) != UNKNOWN
+    """Whether a pin names a real KG build (unknown builds are never reused).
+
+    Both the KG version and its git commit must be known: two builds that report the same
+    version but no commit cannot be told apart, so their mappings must not be shared.
+    """
+    if not pin:
+        return False
+    return all(pin.get(f, UNKNOWN) not in (None, "", UNKNOWN)
+               for f in ("kg_version", "kg_git_commit"))
 
 
 def _now() -> str:
@@ -182,6 +192,8 @@ class MappingStore:
         remap_all: Map everything again; the existing caches are moved aside.
         batch_size: Requests per mapper call; each call's results are saved before the next.
         session_id: Recorded in each lock file.
+        mapper_id: Identity of an injected mapper, or ``None`` for the hosted API. A custom
+            mapper's mappings live in their own subdirectory and are never shared with the API's.
     """
 
     def __init__(
@@ -196,6 +208,7 @@ class MappingStore:
         batch_size: int = DEFAULT_COMMIT_BATCH,
         session_id: str = "",
         arms: Sequence[str] = ARMS,
+        mapper_id: str | None = None,
     ) -> None:
         self.pin = store_pin(
             pins, base_url=base_url, entity_type=entity_type, annotation_mode=annotation_mode
@@ -209,8 +222,8 @@ class MappingStore:
             return
         if not pin_known(self.pin):
             self.reason = (
-                "KG build unknown (Kestrel /health unreadable or not probed): saved mappings are "
-                "not reused, and this run's mappings are not saved"
+                "KG build unknown (Kestrel /health unreadable, not probed, or no git commit "
+                "reported): saved mappings are not reused, and this run's mappings are not saved"
             )
             return
         self.reason = (
@@ -218,9 +231,11 @@ class MappingStore:
             else None
         )
         category_dir = _safe_dir(entity_type)
+        base = (self.root if mapper_id is None
+                else self.root / "custom_mappers" / _safe_dir(mapper_id))
         try:
             for arm in arms:
-                directory = self.root / arm / category_dir
+                directory = base / arm / category_dir
                 directory.mkdir(parents=True, exist_ok=True)
                 arm_store = ArmStore(arm=arm, directory=directory, cache=None,
                                      batch_size=batch_size)

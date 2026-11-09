@@ -98,7 +98,10 @@ def load_necs(path: Path) -> list[dict[str, str]]:
     if path.suffix.lower() in (".xlsx", ".xls"):
         raw = parse_xlsx(path.read_bytes())
     else:
-        raw = pd.read_csv(path, sep="," if path.suffix.lower() == ".csv" else "\t", dtype=str)
+        # Blank cells as "" (as the workbook path does), never NaN, which would become "nan".
+        raw = pd.read_csv(
+            path, sep="," if path.suffix.lower() == ".csv" else "\t", dtype=str
+        ).fillna("")
     frame = build_input_df(raw, NECS)
     rows = []
     for i, r in enumerate(frame.to_dict(orient="records")):

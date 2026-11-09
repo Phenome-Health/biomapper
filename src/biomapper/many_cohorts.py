@@ -84,6 +84,9 @@ __all__ = ["GroupDiff", "ManyCohortReport", "harmonize_many"]
 
 ARM_NAMES_ONLY, ARM_IDENTIFIER = ARMS
 STORE_DIRNAME = "harmonize_many_store"
+# The matrix report's fixed columns; cohort labels may not reuse them (one column per label).
+MATRIX_FIXED_HEADER: tuple[str, ...] = ("node", "n_cohorts", "clean", "multiplicity", "broad")
+_RESERVED_LABELS = frozenset(h.casefold() for h in MATRIX_FIXED_HEADER)
 RUN_PREFIX = "harmonize_many"
 GRADE_PUBLISHABLE = "publishable"
 GRADE_ITERATION = "iteration-grade, not for publication"
@@ -342,7 +345,7 @@ def _write_arm(directory: Path, arm: ArmReport, labels: tuple[str, ...]) -> None
     )
     _write_tsv(
         directory / f"matrix_{name}.tsv",
-        ["node", "n_cohorts", "clean", "multiplicity", "broad", *labels],
+        [*MATRIX_FIXED_HEADER, *labels],
         (
             [g.node, len(g.cohorts), g.clean, g.multiplicity, g.broad,
              *(";".join(m.key for m in g.members if m.cohort == label) for label in labels)]
@@ -420,6 +423,12 @@ def _require_labels(labels: Sequence[str]) -> None:
     for label in labels:
         if not isinstance(label, str) or not label.strip():
             raise ValueError(f"cohort labels must be non-empty strings, got {label!r}")
+        if label.strip().casefold() in _RESERVED_LABELS:
+            raise ValueError(
+                f"cohort label {label!r} is reserved: the matrix report has a fixed "
+                f"{label.strip()!r} column, which a cohort column of that name would overwrite. "
+                f"Reserved: {sorted(MATRIX_FIXED_HEADER)}"
+            )
     for i, a in enumerate(labels):
         for b in labels[i + 1 :]:
             # Each pair is linked by harmonize(), whose summary keys on the labels.
@@ -435,6 +444,16 @@ def _require_labels(labels: Sequence[str]) -> None:
 # ---------------------------------------------------------------------------
 # The run
 # ---------------------------------------------------------------------------
+
+
+def _mapper_identity(mapper: Any) -> str:  # noqa: ANN401 — any mapper callable
+    """A stable name for an injected mapper: ``store_id`` if it has one, else module.qualname."""
+    explicit = getattr(mapper, "store_id", None)
+    if isinstance(explicit, str) and explicit.strip():
+        return explicit.strip()
+    target = mapper if hasattr(mapper, "__qualname__") else type(mapper)
+    module = getattr(target, "__module__", None) or "unknown"
+    return f"{module}.{getattr(target, '__qualname__', type(mapper).__name__)}"
 
 
 def _drilldown_writer(stack: ExitStack, directory: Path | None, arm: str) -> tuple[
@@ -493,7 +512,9 @@ def harmonize_many(
         batch_size, timeout, progress: Default-mapper request policy (10 per batch, 300 s);
             ``batch_size`` is also how often mappings are saved.
         mapper: A ``(records, *, entity_type, annotation_mode) -> list[MappingResult]`` callable
-            to use instead of the hosted API (a replay in tests).
+            to use instead of the hosted API (a replay in tests). Its saved mappings are kept in
+            their own part of the store (``custom_mappers/<id>/``, the id being the mapper's
+            ``store_id`` attribute or its module and qualified name), never mixed with the API's.
         base_url, api_key: Passed to the default mapper and the API health pin.
         kestrel_url: The Kestrel root whose ``/health`` names the KG build.
         probe_pins: Read the API and Kestrel ``/health`` endpoints (default True).
@@ -539,6 +560,9 @@ def harmonize_many(
         else collect_pins(probe=probe_pins, base_url=api_base, api_key=api_key,
                           kestrel_url=kestrel_url)
     )
+    # A custom mapper's saved answers are kept apart from the hosted API's (and from each other),
+    # so a toy or test mapper can never be replayed as API output by a later run.
+    mapper_id = None if isinstance(the_mapper, BatchedApiMapper) else _mapper_identity(the_mapper)
     run_pins = {**pin_block, "mapper": type(the_mapper).__name__,
                 "mapper_pins": getattr(the_mapper, "pins", None)}
     session_id = uuid.uuid4().hex
@@ -560,7 +584,8 @@ def harmonize_many(
     with MappingStore(store_root, pins=pin_block, base_url=api_base,
                       entity_type=resolved_category, annotation_mode="missing",
                       remap_all=remap_all, batch_size=batch_size,
-                      session_id=session_id) as store, ExitStack() as files:
+                      session_id=session_id, mapper_id=mapper_id) as store, \
+            ExitStack() as files:
         if store_root is not None and not pin_known(store.pin):
             run_warnings.append(f"{store.reason}.")
             warnings.warn(store.reason or "", UserWarning, stacklevel=2)

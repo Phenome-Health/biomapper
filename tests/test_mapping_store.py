@@ -243,3 +243,24 @@ def test_request_checksum_is_the_same_for_every_input_kind_and_order_sensitive()
     assert c == request_checksum(same, arm="names_only")
     assert c != request_checksum(swapped, arm="names_only")
     assert c != request_checksum(rows, arm="identifier")
+
+
+def test_a_build_without_a_known_commit_is_never_reused_or_saved(tmp_path) -> None:
+    for commit in ("", "unknown"):
+        with open_store(tmp_path, pins=pins("2.3.0", commit)) as store:
+            assert not store.reuse_enabled
+            assert not store.saving
+            assert "unknown" in (store.reason or "")
+    assert not (tmp_path / "store" / "names_only").exists()
+
+
+def test_a_custom_mapper_store_is_kept_apart_from_the_api_store(tmp_path) -> None:
+    mapper = FakeMapper(by_name(TABLE))
+    with open_store(tmp_path, mapper_id="tests.toy_mapper") as store:
+        run(store, mapper, reqs("glucose"))
+    api = FakeMapper(by_name(TABLE))
+    with open_store(tmp_path) as store:
+        out = run(store, api, reqs("glucose"))
+    assert [s[0] for s in api.sent] == ["glucose"]
+    assert out.n_reused == 0
+    assert (tmp_path / "store" / "custom_mappers" / "tests.toy_mapper" / "names_only").is_dir()
