@@ -5,6 +5,33 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **`harmonize_many()` harmonizes two or more cohorts in one pinned run.** Each cohort is mapped
+  once and the mappings are saved per arm (`biomapper_runs/harmonize_many_store/`, `store_dir=`)
+  in the fsynced `EntityCache` the MCP server already resumes from, keyed per entity, so later
+  runs and added cohorts map only new names. The KG build is read before any request: a store from
+  a different build is refused up front (`remap_all=True` re-maps and keeps the old mappings
+  aside), an unknown build disables reuse, and a lock refuses concurrent writers. Rows are grouped
+  across all cohorts by raw `chosen_kg_id`; groups are flagged for multiplicity (one cohort, two
+  rows) and for class-level ("broad") nodes, and links between rows on different nodes go to a
+  cross-node review queue aggregated by node pair instead of chaining groups. Unresolved, errored
+  and no-node rows are listed per cohort. Links come from the unchanged `harmonize()` once per
+  cohort pair, so for every pair same-node row pairs plus cross-node link pairs equal
+  `harmonize()`'s links (the overlap table reports both). Submitter-declared identifiers are
+  checked offline against each grouped row's node (`confirmed`, `not_confirmed`,
+  `no_declared_id`, `errored`; legacy HMDB codes zero-padded; InChIKeys compared in full). Only
+  vocabularies every cohort declares are supplied as mapping input (the identifier arm, diffed by
+  node). A run that reused saved mappings is labelled `iteration-grade, not for publication`; only
+  a `remap_all=True` run on a verified build is `publishable`. Saved by default to
+  `biomapper_runs/harmonize_many_<UTC stamp>/`. `harmonize_cohorts()` and `harmonize()` are
+  unchanged. New offline modules `biomapper.harmonize.nway` and `biomapper.harmonize.idcheck`;
+  new `biomapper.harmonize.curies.is_structure_curie` and `normalize_hmdb`.
+- **`scripts/harmonize_many_split_recall.py`**: the split-recall gate. On a NECS x Arivale answer
+  key built from curated HMDB identifiers (screened to certifiable NECS rows), it reports how many
+  true pairs land in a node group, in the cross-node queue or in neither, by name-equal and
+  different-name strata, saved by default with pins and checksums. A live run the operator starts.
+
 ## [1.6.3] - 2026-11-06
 
 ### Added
