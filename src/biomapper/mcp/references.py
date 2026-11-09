@@ -147,6 +147,7 @@ class RefRecord(BaseModel):
     created_ts: float
     uid: int | None = None
     supersedes: str | None = None
+    superseded_by: str | None = None
     candidates: CandidateSet | None = None
     candidate_history: list[CandidateSet] = Field(default_factory=list)
 

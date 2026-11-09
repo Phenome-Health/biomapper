@@ -60,6 +60,7 @@ from biomapper.mcp import tools
 from biomapper.mcp._storage import private_dir, utc, write_private
 from biomapper.mcp.config import ServerConfig
 from biomapper.mcp.gate import GateBusy, RequestGate
+from biomapper.mcp.judgments import CHOICES_COLUMNS, CHOICES_MARKER
 from biomapper.mcp.references import RefStore
 from biomapper.models import MappingResult
 
@@ -1238,6 +1239,39 @@ class JobManager:
             ) from None
         job.partial.unlink(missing_ok=True)
 
+
+    # -- choices.tsv (1.7.0) ----------------------------------------------
+
+    def check_choices_writable(self, job: Job) -> None:
+        """Refuse unless ``choices.tsv`` is absent or a server-owned file (marker on line 1)."""
+        path = job.choices_path
+        if path.is_symlink():
+            raise JobError(f"{path} is a link; record_suggestion never writes through links.")
+        if not path.exists():
+            return
+        try:
+            with path.open(encoding="utf-8") as fh:
+                first = fh.readline().rstrip("\r\n")
+        except (OSError, UnicodeDecodeError):
+            first = ""
+        if first != CHOICES_MARKER:
+            raise JobError(
+                f"{path} exists and is not the server-owned choices file, so it is left alone. "
+                "Move it away, then record the suggestion again."
+            )
+
+    def write_choices(self, job: Job, rows: list[list[Any]]) -> Path:
+        """Atomically replace the job's ``choices.tsv`` with ``rows`` under the marker line."""
+        self.check_choices_writable(job)
+        path = job.choices_path
+        tmp = path.with_name(f".{path.name}.{uuid.uuid4().hex[:8]}.tmp")
+        with _create_exclusive(tmp) as fh:
+            fh.write(CHOICES_MARKER + "\n")
+            fh.write(_tsv_line(CHOICES_COLUMNS))
+            for row in rows:
+                fh.write(_tsv_line(row))
+        os.replace(tmp, path)
+        return path
 
     def _write_weak(
         self, job: Job, rows: list[InputRow], cache: EntityCache, pins: dict[str, Any]

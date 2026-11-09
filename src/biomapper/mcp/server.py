@@ -25,12 +25,13 @@ import httpx
 from mcp.server.mcpserver import Context, ListRoots, MCPServer, Resolve
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ListRootsResult
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from biomapper._version import resolve_version
 from biomapper.client import BioMapperClient
 from biomapper.exceptions import BioMapperError
 from biomapper.mcp import candidates as cands
+from biomapper.mcp import judgments as judg
 from biomapper.mcp import tools
 from biomapper.mcp._storage import utc
 from biomapper.mcp.config import ServerConfig
@@ -43,6 +44,7 @@ from biomapper.mcp.gate import (
     RequestGate,
 )
 from biomapper.mcp.jobs import (
+    JobError,
     JobManager,
     JobStatus,
     JobStatusList,
@@ -492,8 +494,74 @@ def build_server(config: ServerConfig | None = None) -> MCPServer[AppState]:
             provenance=state.provenance(),
         )
 
+    @server.tool(description=judg.RECORD_SUGGESTION_DESCRIPTION)
+    async def record_suggestion(
+        ref: str,
+        choice: str,
+        rationale: str,
+        ctx: Context[AppState, Any],
+        roots: ClientRoots,
+    ) -> judg.SuggestionResult:
+        state = _state(ctx)
+        record = _load_ref(state, ref, roots_from_uris(roots.roots))
+        try:
+            canonical, source = judg.validate_choice(record, choice)
+        except judg.JudgmentError as exc:
+            raise ToolError(str(exc)) from None
+        job = None
+        if record.source == "job":
+            job = state.jobs._load(record.job_id or "")
+            if job is None:
+                raise ToolError(f"Reference {ref!r} belongs to a job that no longer exists.")
+            try:
+                state.jobs.check_choices_writable(job)
+            except JobError as exc:
+                raise ToolError(str(exc)) from None
+        store = judg.SuggestionStore(state.refs, wall_clock=state.config.wall_clock)
+        suggestion = store.record(record, canonical, source, rationale)
+        choices_path: str | None = None
+        if job is not None:
+            try:
+                choices_path = str(state.jobs.write_choices(job, store.job_rows(job.job_id)))
+            except (JobError, OSError) as exc:
+                raise ToolError(
+                    f"The suggestion was recorded ({suggestion.suggestion_id}), but "
+                    f"{job.choices_path.name} could not be rewritten: {exc}"
+                ) from None
+        return judg.SuggestionResult(
+            suggestion_id=suggestion.suggestion_id,
+            ref=record.ref_id,
+            choice=suggestion.choice,
+            choice_source=suggestion.choice_source,
+            supersedes=suggestion.supersedes,
+            recorded_utc=suggestion.recorded_utc,
+            choices_path=choices_path,
+        )
+
+    # Status-like keys (status, human_confirmed, ...) must be refused, not silently dropped: a
+    # suggestion has no status, and an agent that thinks it set one would misreport it.
+    _forbid_extra_arguments(server, "record_suggestion")
+
     _register_job_tools(server)
     return server
+
+
+def _forbid_extra_arguments(server: MCPServer[AppState], name: str) -> None:
+    """Make one tool reject unknown arguments (``additionalProperties: false``).
+
+    The SDK's argument model ignores extra keys by default and exposes no per-tool switch, so this
+    swaps in a strict subclass. ``test_status_like_extra_keys_are_rejected_by_the_schema`` fails
+    loudly if an SDK upgrade changes these internals.
+    """
+    tool = server._tool_manager.get_tool(name)
+    assert tool is not None
+    base = tool.fn_metadata.arg_model
+    strict: type[BaseModel] = type(base.__name__, (base,), {
+        "model_config": ConfigDict(**base.model_config, extra="forbid"),
+        "__module__": base.__module__,
+    })
+    tool.fn_metadata.arg_model = strict  # type: ignore[assignment]
+    tool.parameters = strict.model_json_schema(by_alias=True)
 
 
 def _store_set(state: AppState, record: RefRecord, cset: CandidateSet) -> None:
@@ -555,6 +623,11 @@ def _finish_ref(
             return out
         _store_set(state, new, CandidateSet(status=status, reason=why, n=n, fetched_utc=now,
                                             raw_sha256=raw, items=items))
+        record.superseded_by = new.ref_id
+        try:
+            state.refs.save(record)
+        except OSError:
+            logger.warning("could not link %s to its successor", record.ref_id, exc_info=True)
         out.superseding_ref = new.ref_id
         out.candidates = items
         return out
