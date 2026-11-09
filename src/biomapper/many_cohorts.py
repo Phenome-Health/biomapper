@@ -31,6 +31,7 @@ detect engine drift on one KG build. Only a ``remap_all=True`` run on a verified
 from __future__ import annotations
 
 import csv
+import functools
 import json
 import os
 import shutil
@@ -451,6 +452,10 @@ def _mapper_identity(mapper: Any) -> str:  # noqa: ANN401 — any mapper callabl
     explicit = getattr(mapper, "store_id", None)
     if isinstance(explicit, str) and explicit.strip():
         return explicit.strip()
+    # A functools.partial has no __qualname__; name the wrapped function, not "functools.partial"
+    # (which every partial-wrapped mapper would otherwise share).
+    while isinstance(mapper, functools.partial):
+        mapper = mapper.func
     target = mapper if hasattr(mapper, "__qualname__") else type(mapper)
     module = getattr(target, "__module__", None) or "unknown"
     return f"{module}.{getattr(target, '__qualname__', type(mapper).__name__)}"
