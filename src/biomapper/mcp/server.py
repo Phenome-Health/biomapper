@@ -505,7 +505,7 @@ def build_server(config: ServerConfig | None = None) -> MCPServer[AppState]:
         state = _state(ctx)
         record = _load_ref(state, ref, roots_from_uris(roots.roots))
         try:
-            canonical, source = judg.validate_choice(record, choice)
+            canonical, source, backing = judg.validate_choice(record, choice)
         except judg.JudgmentError as exc:
             raise ToolError(str(exc)) from None
         job = None
@@ -518,7 +518,7 @@ def build_server(config: ServerConfig | None = None) -> MCPServer[AppState]:
             except JobError as exc:
                 raise ToolError(str(exc)) from None
         store = judg.SuggestionStore(state.refs, wall_clock=state.config.wall_clock)
-        suggestion = store.record(record, canonical, source, rationale)
+        suggestion = store.record(record, canonical, source, rationale, backing)
         choices_path: str | None = None
         if job is not None:
             try:

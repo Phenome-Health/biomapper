@@ -321,3 +321,19 @@ async def test_store_files_are_private_and_never_hold_the_api_key(tmp_path) -> N
             assert (path.stat().st_mode & 0o777) == 0o700, path
     for path in data.rglob("*"):
         assert secret not in path.read_text(errors="replace")
+
+
+async def test_a_later_failed_fetch_does_not_erase_the_usable_set(router, tmp_path) -> None:
+    config = make_config(tmp_path)
+    [ref] = _seed(config)
+    router.post(f"{API}/map/entity").mock(side_effect=[
+        httpx.Response(200, json=_cands(["CHEBI:1", "CHEBI:2"])),
+        httpx.Response(503, text="down"),
+    ])
+    async with Client(build_server(config)) as client:
+        await _pins(client)
+        _ok(await client.call_tool("get_candidates", {"refs": [ref]}))
+        [r] = _ok(await client.call_tool("get_candidates", {"refs": [ref]}))["results"]
+        assert r["status"] == "fetch_failed"
+        out = _ok(await _suggest(client, ref, "CHEBI:2"))
+    assert out["choice_source"] == "candidate"

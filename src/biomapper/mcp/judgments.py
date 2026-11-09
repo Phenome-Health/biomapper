@@ -23,7 +23,14 @@ from pydantic import BaseModel, Field
 
 from biomapper.mcp._storage import private_dir, utc, write_private
 from biomapper.mcp.candidates import _norm_curie, sanitize
-from biomapper.mcp.references import RefEngine, RefPins, RefQuery, RefRecord, RefStore
+from biomapper.mcp.references import (
+    CandidateSet,
+    RefEngine,
+    RefPins,
+    RefQuery,
+    RefRecord,
+    RefStore,
+)
 
 MAX_RATIONALE = 500
 NONE_CHOICE = "none"
@@ -93,36 +100,52 @@ class SuggestionResult(BaseModel):
     note: str = SUGGESTION_NOTE
 
 
-def validate_choice(record: RefRecord, choice: str) -> tuple[str, ChoiceSource]:
-    """The canonical choice and where it came from, or :class:`JudgmentError`."""
+def latest_usable_set(record: RefRecord) -> CandidateSet:
+    """The newest ``present`` candidate set on the ref, or :class:`JudgmentError` saying why not.
+
+    A later failed or empty fetch does not erase an earlier usable set. A ``run_mismatch`` does:
+    the engine's answer moved, so every older set on this ref is stale.
+    """
+    sets = [*([record.candidates] if record.candidates else []),
+            *reversed(record.candidate_history)]
+    if not sets:
+        raise JudgmentError(
+            f"No candidates have been fetched for {record.ref_id}. Call get_candidates first, or "
+            f"suggest the engine's choice ({record.engine_choice or 'none'}) or 'none'."
+        )
+    for stored in sets:
+        if stored.status == "run_mismatch":
+            successor = record.superseded_by or "the superseding_ref get_candidates returned"
+            raise JudgmentError(
+                f"{record.ref_id} has no usable candidate set: its latest re-map was a "
+                f"run_mismatch ({stored.reason}). Record the suggestion on {successor}."
+            )
+        if stored.usable:
+            return stored
+    latest = sets[0]
+    raise JudgmentError(
+        f"{record.ref_id} has no usable candidate set (latest fetch: {latest.status}"
+        f"{', ' + latest.reason if latest.reason else ''}). Fetch candidates again, or suggest "
+        f"the engine's choice or 'none'."
+    )
+
+
+def validate_choice(
+    record: RefRecord, choice: str
+) -> tuple[str, ChoiceSource, CandidateSet | None]:
+    """The canonical choice, where it came from, and the set backing it; or JudgmentError."""
     value = (choice or "").strip()
     if value.lower() == NONE_CHOICE:
-        return NONE_CHOICE, "none"
+        return NONE_CHOICE, "none", None
     key = _norm_curie(value)
     engine = {_norm_curie(c): c for c in (record.engine.chosen_kg_id, record.engine.primary_curie)
               if c}
     if key in engine:
-        return engine[key], "engine"
-    stored = record.candidates
-    if stored is None:
-        raise JudgmentError(
-            f"{value!r} is not the engine's choice ({record.engine_choice or 'none'}), and no "
-            f"candidates have been fetched for {record.ref_id}. Call get_candidates first, or "
-            "suggest the engine's choice or 'none'."
-        )
-    if not stored.usable:
-        if stored.status == "run_mismatch":
-            successor = record.superseded_by or "the superseding_ref get_candidates returned"
-            hint = f" Its latest fetch was a run_mismatch: record the suggestion on {successor}."
-        else:
-            hint = " Fetch candidates again."
-        raise JudgmentError(
-            f"{record.ref_id} has no usable candidate set ({stored.status}"
-            f"{', ' + stored.reason if stored.reason else ''}).{hint}"
-        )
+        return engine[key], "engine", None
+    stored = latest_usable_set(record)
     for item in stored.items:
         if _norm_curie(item.curie) == key:
-            return item.curie, "candidate"
+            return item.curie, "candidate", stored
     raise JudgmentError(
         f"{value!r} is not in the candidates last fetched for {record.ref_id}, and is not the "
         f"engine's choice. Suggest one of those CURIEs, or 'none'."
@@ -154,11 +177,15 @@ class SuggestionStore:
         return live[-1] if live else None
 
     def record(
-        self, record: RefRecord, choice: str, source: ChoiceSource, rationale: str
+        self,
+        record: RefRecord,
+        choice: str,
+        source: ChoiceSource,
+        rationale: str,
+        stored: CandidateSet | None = None,
     ) -> Suggestion:
         now = self._clock()
         previous = self.current(record.ref_id)
-        stored = record.candidates if source == "candidate" else None
         suggestion = Suggestion(
             suggestion_id=f"sugg-{int(now * 1e6):016d}-{secrets.token_hex(6)}",
             ref=record.ref_id,
