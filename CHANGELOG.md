@@ -5,6 +5,8 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-11-10
+
 ### Added
 
 - **`harmonize_many()` harmonizes two or more cohorts in one pinned run.** Each cohort is mapped
