@@ -530,8 +530,8 @@ def _write_mapping(
     )
 
 
-def _new_run_dir(base: Path) -> Path:
-    """Create and return a fresh, timestamped run directory under ``base``.
+def _new_run_dir(base: Path, prefix: str = "harmonize_cohorts") -> Path:
+    """Create and return a fresh, timestamped ``<prefix>_<stamp>`` run directory under ``base``.
 
     The directory is created exclusively (``exist_ok=False``) so two runs starting in the same
     second can never both claim it: the loser of the race gets ``FileExistsError`` and moves on
@@ -539,15 +539,37 @@ def _new_run_dir(base: Path) -> Path:
     """
     base.mkdir(parents=True, exist_ok=True)
     stamp = dt.datetime.now(dt.UTC).strftime("%Y%m%dT%H%M%SZ")
-    candidate = base / f"harmonize_cohorts_{stamp}"
+    candidate = base / f"{prefix}_{stamp}"
     n = 2
     while True:
         try:
             candidate.mkdir()
             return candidate
         except FileExistsError:
-            candidate = base / f"harmonize_cohorts_{stamp}_{n}"
+            candidate = base / f"{prefix}_{stamp}_{n}"
             n += 1
+
+
+def request_checksum(
+    requests: Sequence[tuple[str, str, Mapping[str, Sequence[str]]]],
+    **declarations: Any,  # noqa: ANN401 — JSON-safe request settings
+) -> str:
+    """sha256 over the canonical JSON of a cohort's mapping request, the same for every input kind.
+
+    ``requests`` is the ordered ``(key, name, identifiers sent)`` per row; ``declarations`` are the
+    settings that shape the request (column declarations, category, annotation mode, arm). A file,
+    a DataFrame and a list of dicts holding the same rows give the same checksum, which a file
+    sha256 alone cannot do. Provenance only: it is never used as a reuse key.
+    """
+    payload = {
+        "rows": [
+            [key, name, {v: sorted(codes) for v, codes in sorted(ids.items())}]
+            for key, name, ids in requests
+        ],
+        "declarations": declarations,
+    }
+    canonical = json.dumps(payload, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 def _require_cohort_labels(a_label: str, b_label: str) -> None:

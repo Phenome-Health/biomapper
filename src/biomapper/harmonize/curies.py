@@ -15,6 +15,7 @@ have already been resolved (by a live run, or mocked in tests).
 from __future__ import annotations
 
 import ast
+import re
 from typing import Any
 
 # Namespace-prefix synonyms that denote the SAME identifier space, canonicalized to one form so
@@ -134,3 +135,31 @@ def curie_set(
         for c in predicted_curies(chosen, equivalents)
         if c.split(":", 1)[0] not in _STRUCTURAL_NAMESPACES
     )
+
+
+def is_structure_curie(curie: Any) -> bool:  # noqa: ANN401 — accepts any cell value
+    """True when ``curie`` is in a structure-encoding namespace (InChIKey / InChI / SMILES).
+
+    Such a ``chosen_kg_id`` is not a usable node to group on: :func:`curie_set` drops it, so it
+    can never anchor an identifier link.
+    """
+    normalized = normalize_curie(curie)
+    return normalized is not None and normalized.split(":", 1)[0] in _STRUCTURAL_NAMESPACES
+
+
+_HMDB_LOCAL = re.compile(r"^(?:HMDB)?(\d+)$", re.IGNORECASE)
+
+
+def normalize_hmdb(curie: str) -> str:
+    """Zero-pad a legacy 5-digit HMDB CURIE to the current 7 digits; other CURIEs pass through.
+
+    ``HMDB:HMDB00122`` and ``HMDB:122`` become ``HMDB:HMDB0000122``. Expects a CURIE already
+    through :func:`normalize_curie` (upper-case prefix).
+    """
+    prefix, sep, local = curie.partition(":")
+    if prefix != "HMDB" or not sep:
+        return curie
+    match = _HMDB_LOCAL.match(local.strip())
+    if match is None:
+        return curie
+    return f"HMDB:HMDB{int(match.group(1)):07d}"
