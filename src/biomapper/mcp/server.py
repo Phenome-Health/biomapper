@@ -624,10 +624,13 @@ def build_server(config: ServerConfig | None = None) -> MCPServer[AppState]:
             deadline_s=end - anyio.current_time() - side,
         )
         build = await _fresh_build(state, limit_s=max(0.0, end - anyio.current_time()))
-        fetched = iter([
+        finished = [
             _finish_ref(state, record, result, reason, top_n, build)
             for record, (result, reason) in zip(records, outcomes, strict=True)
-        ])
+        ]
+        for record, out in zip(records, finished, strict=True):
+            _refresh_review_entry(state, record, out)
+        fetched = iter(finished)
         return cands.GetCandidatesResult(
             results=[ready[i] if i in ready else next(fetched) for i in range(len(wanted))],
             provenance=state.provenance(),
@@ -776,8 +779,18 @@ def build_server(config: ServerConfig | None = None) -> MCPServer[AppState]:
                     "get_candidates for the weak rows of map_entity, map_batch and map_file."
                 )
             _job, index = _review_index(state, record.job_id or "", client_roots)
+            # A ref replaced by a later run mismatch still names its item: follow it forward.
+            chain = {ref}
+            for _ in range(5):
+                if not record.superseded_by:
+                    break
+                chain.add(record.superseded_by)
+                try:
+                    record = state.refs.load(record.superseded_by)
+                except RefError:
+                    break
             found = next((e for e in index.entries
-                          if e.kind == "row" and ref in (e.ref, e.superseding_ref)), None)
+                          if e.kind == "row" and chain & {e.ref, e.superseding_ref}), None)
             if found is None:
                 raise ToolError(f"No review item {ref!r} in job {record.job_id}.")
             entry = found
@@ -848,6 +861,25 @@ def _finish_ref(
     """Turn one re-map outcome into the ref's status, and store what was fetched on the ref."""
     return cands.finish_ref(state.refs, utc(state.config.wall_clock()), record, result, reason,
                             n, build)
+
+
+def _refresh_review_entry(state: AppState, record: RefRecord, out: cands.RefCandidates) -> None:
+    """After a fetch on a harmonize job's reference, update its review item to match.
+
+    Only for a finished job (the capture stage owns the index of a running one). A failure to
+    write is logged, never raised: the fetch itself succeeded and is stored on the reference.
+    """
+    if record.source != "job":
+        return
+    job = state.jobs._load(record.job_id or "")
+    if not isinstance(job, HarmonizeJob) or job.state not in FINISHED:
+        return
+    try:
+        rev.EntryStore(state.config.home).refresh(
+            job.job_id, record.ref_id, out.status, out.reason, out.superseding_ref
+        )
+    except OSError:
+        logger.warning("could not update the review item of %s", record.ref_id, exc_info=True)
 
 
 def _register_job_tools(server: MCPServer[AppState]) -> None:

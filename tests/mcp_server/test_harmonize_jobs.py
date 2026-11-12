@@ -21,7 +21,8 @@ import pytest
 import respx
 from mcp import Client
 
-from biomapper.cohorts import harmonize_cohorts
+from biomapper._mapping_store import _safe_dir
+from biomapper.cohorts import harmonize_cohorts, resolve_category
 from biomapper.many_cohorts import GRADE_ITERATION, GRADE_PUBLISHABLE, harmonize_many
 from biomapper.mcp.server import build_server
 from tests.mcp_server.harmonize_helpers import (
@@ -739,3 +740,172 @@ async def test_a_file_replaced_during_an_interrupted_placement_is_not_overwritte
     assert "not overwritten" in failed["reason"]
     assert (out / names[0]).read_text() == "the researcher's own edit"
     assert sorted(p.name for p in out.iterdir()) == names[:3], "and nothing else was placed"
+
+
+# ---------------------------------------------------------------------------
+# Review round 1 (PR #48): the store's permissions and links, registration, placement
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def open_umask():
+    """An ordinary 022 umask, under which plain writes are world-readable."""
+    old = os.umask(0o022)
+    try:
+        yield
+    finally:
+        os.umask(old)
+
+
+def modes(root: Path) -> dict[str, int]:
+    return {str(p.relative_to(root)): stat.S_IMODE(p.lstat().st_mode) for p in root.rglob("*")}
+
+
+async def test_saved_mappings_are_private_while_the_job_is_still_mapping(
+    router, tmp_path, data, open_umask
+) -> None:
+    """Not after a later chmod: a job killed mid-run must not leave readable mappings."""
+    scripted = Scripted(delay=0.2).mount(router)
+    async with Client(build_server(cfg(tmp_path, data))) as client:
+        job = await submit_many(client, three(data))
+        await wait_until(lambda: scripted.inflight.calls >= 2)
+        store = Path(job["store_dir"])
+        during = modes(store)
+        assert stat.S_IMODE(store.stat().st_mode) == 0o700
+        await wait_h(client, job["job_id"], "complete")
+    assert any(name.endswith("entity_cache.jsonl") for name in during), during
+    assert all(mode & 0o077 == 0 for mode in during.values()), during
+    assert os.umask(0o022) == 0o022, "the process umask is restored after the run"
+
+
+async def test_an_existing_store_keeps_the_modes_of_files_the_job_did_not_create(
+    router, tmp_path, data, open_umask
+) -> None:
+    Scripted().mount(router)
+    store = data / "shared"
+    (store / "tools").mkdir(parents=True)
+    script = store / "tools" / "run.sh"
+    script.write_text("#!/bin/sh\n")
+    notes = store / "notes.txt"
+    notes.write_text("shared notes")
+    for path, mode in ((store, 0o755), (store / "tools", 0o750), (script, 0o755),
+                       (notes, 0o644)):
+        os.chmod(path, mode)
+    async with Client(build_server(cfg(tmp_path, data))) as client:
+        job = await submit_many(client, three(data), store_dir=str(store))
+        await wait_h(client, job["job_id"], "complete")
+    after = modes(store)
+    assert stat.S_IMODE(store.stat().st_mode) == 0o755
+    assert (after["tools"], after["tools/run.sh"], after["notes.txt"]) == (0o750, 0o755, 0o644)
+    created = {k: v for k, v in after.items() if k not in ("tools", "tools/run.sh", "notes.txt")}
+    assert created and all(mode & 0o077 == 0 for mode in created.values()), created
+
+
+@pytest.mark.parametrize("level", ["arm", "category", "file"])
+async def test_a_link_inside_the_store_is_refused_before_anything_is_written(
+    router, tmp_path, data, level
+) -> None:
+    scripted = Scripted().mount(router)
+    outside = tmp_path / "elsewhere"
+    outside.mkdir()
+    store = data / "store"
+    leaf = store / "names_only" / _safe_dir(resolve_category("metabolites", None))
+    if level == "arm":
+        store.mkdir()
+        (store / "names_only").symlink_to(outside, target_is_directory=True)
+    elif level == "category":
+        leaf.parent.mkdir(parents=True)
+        leaf.symlink_to(outside, target_is_directory=True)
+    else:
+        leaf.mkdir(parents=True)
+        (leaf / "entity_cache.jsonl").symlink_to(outside / "victim.jsonl")
+    async with Client(build_server(cfg(tmp_path, data))) as client:
+        job = await submit_many(client, three(data), store_dir=str(store))
+        failed = await wait_h(client, job["job_id"], "failed", "complete")
+    assert failed["state"] == "failed" and "is a link" in failed["reason"], failed
+    assert list(outside.iterdir()) == []
+    assert scripted.sent_names == [], "refused before any mapping request"
+
+
+async def test_concurrent_submissions_cannot_exceed_the_queue_cap_or_split_a_job(
+    router, tmp_path, data
+) -> None:
+    scripted = Scripted(delay=0.05).mount(router)
+    config = cfg(tmp_path, data, harmonize_max_queued=1)
+    cohorts = three(data)
+    async with Client(build_server(config)) as client:
+        def call(**kw):
+            return client.call_tool("harmonize_many",
+                                    {"cohorts": cohorts, "entity": "metabolites", **kw})
+
+        same = await asyncio.gather(call(), call())
+        ids = {payload(r)["job_id"] for r in same}
+        assert len(ids) == 1, "identical submissions are one job"
+        (job_id,) = ids
+        # Two more, each a different job, raced against the one already queued: both refused.
+        others = await asyncio.gather(call(output_dir=str(data / "o1")),
+                                      call(output_dir=str(data / "o2")))
+        assert all("unfinished harmonize job" in error_text(r) for r in others)
+        payload(await client.call_tool("cancel_job", {"job_id": job_id}))
+        cancelled = await wait_h(client, job_id, "cancelled")
+        assert cancelled["state"] == "cancelled", "cancel reaches the object the worker runs"
+        # With the queue free again, two distinct racing submissions admit exactly one.
+        raced = await asyncio.gather(call(output_dir=str(data / "o1")),
+                                     call(output_dir=str(data / "o2")))
+        assert sorted(r.is_error for r in raced) == [False, True]
+        await wait_h(client, next(payload(r) for r in raced if not r.is_error)["job_id"],
+                     "complete")
+    assert [p.name for p in (config.home / "jobs").iterdir()].count(job_id) == 1
+    assert scripted.inflight.peak == 1
+
+
+async def test_a_temp_file_left_by_a_crash_mid_placement_does_not_block_recovery(
+    router, tmp_path, data
+) -> None:
+    Scripted().mount(router)
+    config = cfg(tmp_path, data)
+    async with Client(build_server(config)) as client:
+        job = await submit_many(client, three(data))
+        done = await wait_h(client, job["job_id"], "complete")
+    out = Path(done["output_dir"])
+    names = _rewind_to_interrupted_placement(config, job["job_id"], out, keep=3)
+    (out / f".{names[3]}.{job['job_id']}.tmp").write_text("half a fi")
+    async with Client(build_server(config)) as client:
+        again = await wait_h(client, job["job_id"], "complete")
+    assert again["state"] == "complete"
+    assert sorted(p.name for p in out.iterdir()) == names
+
+
+async def test_a_write_that_fails_partway_leaves_no_partial_report_and_a_retry_completes(
+    router, tmp_path, data, monkeypatch
+) -> None:
+    from biomapper.mcp.harmonize_jobs import HarmonizeRunner
+
+    Scripted().mount(router)
+    real = HarmonizeRunner._write_new
+    calls = {"n": 0}
+
+    def failing(path: Path, content: bytes) -> None:
+        calls["n"] += 1
+        if calls["n"] == 3:
+            real(path, content[: len(content) // 2])
+            raise OSError("No space left on device")
+        real(path, content)
+
+    monkeypatch.setattr(HarmonizeRunner, "_write_new", staticmethod(failing))
+    config = cfg(tmp_path, data)
+    async with Client(build_server(config)) as client:
+        job = await submit_many(client, three(data))
+        failed = await wait_h(client, job["job_id"], "failed", "complete")
+        assert failed["state"] == "failed" and "No space left" in failed["reason"]
+        out = Path(failed["output_dir"])
+        placed = sorted(p.name for p in out.iterdir())
+        assert len(placed) == 2 and not any(n.endswith(".tmp") for n in placed), placed
+        monkeypatch.setattr(HarmonizeRunner, "_write_new", staticmethod(real))
+        again = await submit_many(client, three(data))
+        assert again["job_id"] == job["job_id"]
+        done = await wait_h(client, job["job_id"], "complete", "failed")
+    assert done["state"] == "complete", done["reason"]
+    record = json.loads((job_dir(config, job["job_id"]) / "job.json").read_text())
+    assert sorted(p.name for p in out.iterdir() if p.name != "choices.tsv") == sorted(
+        record["placed"])

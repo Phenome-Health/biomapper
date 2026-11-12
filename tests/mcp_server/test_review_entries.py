@@ -7,6 +7,7 @@ import csv
 import json
 from pathlib import Path
 
+import httpx
 import pytest
 import respx
 from mcp import Client
@@ -27,7 +28,7 @@ from tests.mcp_server.harmonize_helpers import (
     wait_until,
     write_cohort,
 )
-from tests.mcp_server.mcp_helpers import healthy_routes
+from tests.mcp_server.mcp_helpers import API, KESTREL, healthy_routes
 
 # c1's "citric acid" and the others' "citric  acid" (two spaces) are equal after whitespace
 # normalization, so they link by name (name_exact) while sitting on two different nodes.
@@ -503,3 +504,96 @@ async def test_a_users_own_choices_file_is_left_alone(router, tmp_path, data) ->
         assert "left alone" in error_text(res)
     assert mine.read_text() == "my own notes\n"
     assert json.loads((Path(done["output_dir"]) / "summary.json").read_text())["n_cohorts"] == 3
+
+
+# ---------------------------------------------------------------------------
+# Review round 1 (PR #48): evidence after a restart, a later fetch, and the cap across resumes
+# ---------------------------------------------------------------------------
+
+
+async def test_a_restart_on_an_unverified_build_discards_the_captured_evidence(
+    tmp_path, data
+) -> None:
+    """Two unverified builds share one label, so captured evidence cannot be matched to a
+    fresh mapping: a restart that discards the mappings fetches the evidence again too."""
+    api = Scripted(TABLE)
+    api.kg_names = dict(KG_NAMES)
+    api.candidate_delay = 0.15
+    config = cfg(tmp_path, data)
+    with respx.mock(assert_all_called=False) as r:
+        r.get(f"{API}/health").mock(return_value=httpx.Response(200, json={"status": "ok"}))
+        r.get(f"{KESTREL}/health").mock(side_effect=httpx.ConnectError("kestrel down"))
+        api.mount(r)
+        async with Client(build_server(config)) as client:
+            job = payload(await client.call_tool(
+                "harmonize_many", {"cohorts": three(data), "entity": "metabolites"}))
+            await wait_until(lambda: len(api.candidate_requests) >= 2)
+            payload(await client.call_tool("cancel_job", {"job_id": job["job_id"]}))
+            await asyncio.sleep(0.5)
+        before = list(api.candidate_requests)
+        mapped = len(api.sent_names)
+        api.candidate_delay = 0.0
+        async with Client(build_server(config)) as client:  # a new session
+            payload(await client.call_tool("resume_job", {"job_id": job["job_id"]}))
+            done = await wait_h(client, job["job_id"], "complete")
+            page = await items(client, done["job_id"])
+    assert len(api.sent_names) > mapped, "the mappings were discarded and made again"
+    assert "restarted" in done["reason"]
+    after = api.candidate_requests[len(before):]
+    assert before[0] in after, "evidence captured on the earlier build is fetched again"
+    assert all(i["evidence"] != "pending" for i in page["items"])
+
+
+async def test_a_later_fetch_updates_the_review_item(router, tmp_path, data) -> None:
+    api = scripted(router)
+    api.candidate_fail = {"ghost", "weakone"}
+    async with Client(build_server(cfg(tmp_path, data))) as client:
+        done = await run_many(client, three(data))
+        page = await items(client, done["job_id"], kind="row")
+        by = {i["label"]: i for i in page["items"]}
+        assert by["ghost"]["evidence"] == by["weakone"]["evidence"] == "fetch_failed"
+        # The retry succeeds: the list and the item say so, not "fetch_failed".
+        api.candidate_fail = set()
+        got = payload(await client.call_tool("get_candidates", {"refs": [by["ghost"]["ref"]]}))
+        status = got["results"][0]["status"]
+        assert status in ("present", "none_searched")
+        page = await items(client, done["job_id"], kind="row")
+        assert {i["label"]: i for i in page["items"]}["ghost"]["evidence"] == status
+        info = await detail(client, by["ghost"]["ref"])
+        assert info["row"]["candidates_status"] == status
+        assert info["row"]["candidates_reason"] != "http_500"
+        # The retry finds another engine choice: its new reference belongs to the item.
+        api.candidate_table = {"weakone": node("CHEBI:77", cert="uncorroborated")}
+        got = payload(await client.call_tool("get_candidates", {"refs": [by["weakone"]["ref"]]}))
+        (result,) = got["results"]
+        assert result["status"] == "run_mismatch" and result["superseding_ref"]
+        info = await detail(client, result["superseding_ref"])
+        assert info["row"]["superseding_ref"] == result["superseding_ref"]
+        assert info["ref"] == by["weakone"]["ref"]
+        made = payload(await client.call_tool("record_suggestion", {
+            "ref": result["superseding_ref"], "choice": "none", "rationale": "r"}))
+        page = await items(client, done["job_id"], kind="row")
+        weak = {i["label"]: i for i in page["items"]}["weakone"]
+        assert weak["evidence"] == "run_mismatch" and weak["suggestion"] == made["choice"]
+
+
+async def test_the_capture_cap_holds_across_a_cancel_and_resume(router, tmp_path, data) -> None:
+    table = {f"w{i}": node(f"W:{i}", cert="uncorroborated") for i in range(1, 7)}
+    api = Scripted(table).mount(router)
+    api.candidate_delay = 0.15
+    cohorts = [spec(write_cohort(data / "c1.tsv", [f"w{i}" for i in range(1, 7)])),
+               spec(write_cohort(data / "c2.tsv", ["w1", "w2"])),
+               spec(write_cohort(data / "c3.tsv", ["w1"]))]
+    config = cfg(tmp_path, data, capture_max_entities=2)
+    async with Client(build_server(config)) as client:
+        job = payload(await client.call_tool(
+            "harmonize_many", {"cohorts": cohorts, "entity": "metabolites"}))
+        await wait_until(lambda: len(api.candidate_requests) >= 1)
+        payload(await client.call_tool("cancel_job", {"job_id": job["job_id"]}))
+        await asyncio.sleep(0.5)
+        api.candidate_delay = 0.0
+        payload(await client.call_tool("resume_job", {"job_id": job["job_id"]}))
+        done = await wait_h(client, job["job_id"], "complete")
+        page = await items(client, done["job_id"])
+    assert api.candidate_requests == ["w1", "w2"], "two requests for the job, not two per run"
+    assert [i["evidence"] for i in page["items"]] == ["present", "present"] + ["not_captured"] * 4

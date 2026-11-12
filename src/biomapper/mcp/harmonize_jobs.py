@@ -36,7 +36,9 @@ import logging
 import os
 import re
 import shutil
+import threading
 import warnings
+from collections.abc import Iterator
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -46,7 +48,13 @@ import anyio.to_thread
 from pydantic import BaseModel, ConfigDict, Field
 
 from biomapper._checkpoint import CachePinMismatch, EntityCache
-from biomapper._mapping_store import StoreBuildMismatch, StoreLocked, _entity_key
+from biomapper._mapping_store import (
+    ARMS,
+    StoreBuildMismatch,
+    StoreLocked,
+    _entity_key,
+    _safe_dir,
+)
 from biomapper._pins import kg_build_label, kg_verified
 from biomapper.cohorts import (
     BatchedApiMapper,
@@ -186,6 +194,35 @@ def _chmod_tree(root: Path) -> None:
             os.chmod(path, 0o700 if path.is_dir() else 0o600)
 
 
+_umask_lock = threading.Lock()
+_umask_depth = 0
+_umask_saved = 0
+
+
+@contextlib.contextmanager
+def _private_umask() -> Iterator[None]:
+    """Owner-only for every file and directory created while the unchanged function runs.
+
+    The function and the saved-mapping store use plain writes, so the only way to have their
+    files private from the moment they exist (not after a later chmod, which a killed job never
+    reaches) is the process umask. It is process-wide; that is safe here because the server's
+    own writes all pass an explicit owner-only mode, so the only effect on another thread is a
+    more private file. Counted, so overlapping uses restore the original value once.
+    """
+    global _umask_depth, _umask_saved
+    with _umask_lock:
+        if _umask_depth == 0:
+            _umask_saved = os.umask(0o077)
+        _umask_depth += 1
+    try:
+        yield
+    finally:
+        with _umask_lock:
+            _umask_depth -= 1
+            if _umask_depth == 0:
+                os.umask(_umask_saved)
+
+
 def _matches_report(name: str) -> bool:
     return any(Path(name).match(pattern) for pattern in REPORT_PATTERNS)
 
@@ -198,6 +235,7 @@ class HarmonizeRunner:
         self._bad_chunks = 0
         self._attempts: dict[str, int] = {}
         self._batch_index = 0
+        self._submit_lock: anyio.Lock | None = None
 
     # -- status ------------------------------------------------------------
 
@@ -382,54 +420,60 @@ class HarmonizeRunner:
             sort_keys=True,
         ).encode()).hexdigest()[:16]
 
-        existing = m._load(job_id)
-        if existing is not None:
-            if not isinstance(existing, HarmonizeJob):  # pragma: no cover - a 64-bit collision
-                raise JobError(f"Job id {job_id} is taken by a map_file job.")
-            state, _ = m._live_state(existing)
-            # A paused job is picked up; a failed one is retried (it placed nothing, or only
-            # files it recorded as its own). A live job is never touched: there is no rerun.
-            if state in ("paused", "failed") and m._busy_job != job_id and m._take(existing):
-                job = m._jobs[job_id]
-                assert isinstance(job, HarmonizeJob)
-                job.state = "queued"
-                job.reason = None
-                m._save(job)
-                m._enqueue(job, health=True, roots=roots)
-                return self.status(job)
-            return self.status(existing)
+        # One registration at a time: the checks below await (the health probe), so without the
+        # lock two submissions could both pass them, and the second would replace the job object
+        # the worker already runs (status and cancel would then miss it) or exceed the queue cap.
+        if self._submit_lock is None:
+            self._submit_lock = anyio.Lock()
+        async with self._submit_lock:
+            existing = m._load(job_id)
+            if existing is not None:
+                if not isinstance(existing, HarmonizeJob):  # pragma: no cover - a 64-bit collision
+                    raise JobError(f"Job id {job_id} is taken by a map_file job.")
+                state, _ = m._live_state(existing)
+                # A paused job is picked up; a failed one is retried (it placed nothing, or only
+                # files it recorded as its own). A live job is never touched: there is no rerun.
+                if state in ("paused", "failed") and m._busy_job != job_id and m._take(existing):
+                    job = m._jobs[job_id]
+                    assert isinstance(job, HarmonizeJob)
+                    job.state = "queued"
+                    job.reason = None
+                    m._save(job)
+                    m._enqueue(job, health=True, roots=roots)
+                    return self.status(job)
+                return self.status(existing)
 
-        self._check_output_free(output)
-        unfinished = [
-            j for j in m._jobs.values()
-            if isinstance(j, HarmonizeJob) and j.job_id in m._locks and j.state in UNFINISHED
-        ]
-        if len(unfinished) >= cfg.harmonize_max_queued:
-            raise JobError(
-                f"This session already has {len(unfinished)} unfinished harmonize job(s) (limit "
-                f"{cfg.harmonize_max_queued}); jobs run one at a time. Wait for one to finish, "
-                "or cancel_job it."
+            self._check_output_free(output)
+            unfinished = [
+                j for j in m._jobs.values()
+                if isinstance(j, HarmonizeJob) and j.job_id in m._locks and j.state in UNFINISHED
+            ]
+            if len(unfinished) >= cfg.harmonize_max_queued:
+                raise JobError(
+                    f"This session already has {len(unfinished)} unfinished harmonize job(s) "
+                    f"(limit {cfg.harmonize_max_queued}); jobs run one at a time. Wait for one "
+                    "to finish, or cancel_job it."
+                )
+            problem = await m._health_ok()
+            if problem is not None:
+                raise JobError(f"Not queued: {problem}")
+
+            job = HarmonizeJob(
+                job_id=job_id, kind=kind, cohorts=cohorts, entity=entity, category=category,
+                output_dir=str(output), store_dir=str(store) if store else None, options=options,
+                entities_total=entities_total,
+                seconds_per_entity=cfg.seconds_per_entity_seed,
+                created_utc=utc(cfg.wall_clock()),
             )
-        problem = await m._health_ok()
-        if problem is not None:
-            raise JobError(f"Not queued: {problem}")
-
-        job = HarmonizeJob(
-            job_id=job_id, kind=kind, cohorts=cohorts, entity=entity, category=category,
-            output_dir=str(output), store_dir=str(store) if store else None, options=options,
-            entities_total=entities_total,
-            seconds_per_entity=cfg.seconds_per_entity_seed,
-            created_utc=utc(cfg.wall_clock()),
-        )
-        private_dir(cfg.home)
-        private_dir(m.jobs_dir)
-        private_dir(m._dir(job_id))
-        if not m._take(job):
-            raise JobError(f"Job {job_id} is owned by another session.")
-        m._jobs[job_id] = job
-        m._save(job)
-        m._enqueue(job, health=False, roots=roots)
-        return self.status(job)
+            private_dir(cfg.home)
+            private_dir(m.jobs_dir)
+            private_dir(m._dir(job_id))
+            if not m._take(job):
+                raise JobError(f"Job {job_id} is owned by another session.")
+            m._jobs[job_id] = job
+            m._save(job)
+            m._enqueue(job, health=False, roots=roots)
+            return self.status(job)
 
     # -- the bridge (runs on the server loop, called from the worker thread) --
 
@@ -562,6 +606,13 @@ class HarmonizeRunner:
             "api_key": cfg.api_key, "kestrel_url": cfg.kestrel_url, "pins": pins,
             "output_dir": staging, "save": True, "on_message": quiet,
         }
+        with _private_umask():
+            return self._call_function(job, common, resumed)
+
+    @staticmethod
+    def _call_function(
+        job: HarmonizeJob, common: dict[str, Any], resumed: bool
+    ) -> ManyCohortReport | CohortHarmonizationReport:
         if job.kind == "harmonize_many":
             return harmonize_many(
                 {c["label"]: c["path"] for c in job.cohorts},
@@ -586,8 +637,48 @@ class HarmonizeRunner:
         )
 
     def _discard_cache(self, job: HarmonizeJob) -> None:
-        shutil.rmtree(self.m._dir(job.job_id) / CACHE_DIR, ignore_errors=True)
+        """Drop everything the invalidated run produced: its mappings AND its review evidence.
+
+        The review index is matched to a rebuilt list by content and build label, and two
+        unverified builds carry the same label, so keeping it would show fresh mappings beside
+        candidates and node names captured on the earlier, unverified build.
+        """
+        from biomapper.mcp import review_entries
+
+        jdir = self.m._dir(job.job_id)
+        shutil.rmtree(jdir / CACHE_DIR, ignore_errors=True)
+        review_entries.discard(jdir)
         job.entities_mapped = 0
+        job.review = None
+
+    def _check_store(self, job: HarmonizeJob, category: str) -> None:
+        """Refuse a saved-mapping store with a link anywhere the unchanged writer will go.
+
+        Submit checks the store root only. ``MappingStore`` then creates and opens
+        ``<store>/<arm>/<category>/`` and its files with plain calls that follow links, so a
+        link at any of those levels would take the job's writes outside the allowed folders.
+        """
+        if job.store_dir is None:
+            return
+        root = Path(job.store_dir)
+        roots = self.m._run_roots.get(job.job_id, [])
+        for arm in ARMS:
+            leaf = root / arm / _safe_dir(category)
+            parts = [root, root / arm, leaf]
+            if leaf.is_dir() and not leaf.is_symlink():
+                parts.extend(leaf.iterdir())
+            for part in parts:
+                if part.is_symlink():
+                    raise JobError(
+                        f"{part} in the saved-mapping store is a link; a harmonize job never "
+                        "writes through links. Nothing was written. Remove the link, or pass "
+                        "another store_dir."
+                    )
+            if not _under(leaf.resolve(), roots):  # a missing tail is allowed
+                raise JobError(
+                    f"{leaf} in the saved-mapping store is outside the folders allowed in this "
+                    "session. Nothing was written."
+                )
 
     def _open_caches(self, job: HarmonizeJob, pin: dict[str, Any]) -> dict[str, EntityCache]:
         root = self.m._dir(job.job_id) / CACHE_DIR
@@ -673,6 +764,7 @@ class HarmonizeRunner:
         staging = jdir / STAGING_DIR
         shutil.rmtree(staging, ignore_errors=True)
         private_dir(staging)
+        await anyio.to_thread.run_sync(self._check_store, job, category)
         self._bad_chunks = 0
         self._attempts = {}
         mapper = GatedJobMapper(self, job, caches)
@@ -726,10 +818,14 @@ class HarmonizeRunner:
         await review_entries.build_and_capture(self, job, report, staging, pins, category)
 
     def _tighten(self, job: HarmonizeJob, staging: Path) -> None:
+        """Owner-only for the job's OWN directories (belt and braces: they are created private).
+
+        The saved-mapping store is deliberately not touched: it may be a shared or pre-existing
+        folder, and changing the mode of files this job did not create would lock others out.
+        What the job creates there is private from creation (see :func:`_private_umask`).
+        """
         _chmod_tree(staging)
         _chmod_tree(self.m._dir(job.job_id) / CACHE_DIR)
-        if job.store_dir is not None:
-            _chmod_tree(Path(job.store_dir))
 
     # -- placement -----------------------------------------------------------
 
@@ -781,21 +877,47 @@ class HarmonizeRunner:
         for name in names:  # files this job placed before an interruption; rebuilt below
             if self._own(job, output / name):
                 (output / name).unlink()
+            # A temp file of this job (its id is in the name) left by a crash mid-write.
+            self._temp(job, output, name).unlink(missing_ok=True)
         # Record ownership BEFORE placing: a crash mid-placement must still find them ours.
         job.placed = {name: _sha256(staging / name) for name in names}
         self.m._save(job)
-        nofollow = getattr(os, "O_NOFOLLOW", 0)
         for name in names:
+            # Written in full under a temp name, then linked to its final name: a crash or a
+            # failed write never leaves a partial file under a report name (which this job
+            # could not tell from somebody else's and would refuse on every retry). os.link
+            # fails if the name exists, link or file, so the no-overwrite guarantee holds.
+            final, tmp = output / name, self._temp(job, output, name)
+            data = (staging / name).read_bytes()
             try:
-                fd = os.open(output / name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | nofollow,
-                             0o600)
+                self._write_new(tmp, data)
+                try:
+                    os.link(tmp, final)
+                except FileExistsError:
+                    raise
+                except OSError:  # a filesystem without hard links: exclusive create instead
+                    self._write_new(final, data)
             except FileExistsError:
                 raise JobError(
-                    f"{output / name} appeared while the report was being written; not "
-                    "overwritten. Move it away and submit the same harmonize call again."
+                    f"{final} appeared while the report was being written; not overwritten. "
+                    "Move it away and submit the same harmonize call again."
                 ) from None
-            with os.fdopen(fd, "wb") as fh:
-                fh.write((staging / name).read_bytes())
+            finally:
+                tmp.unlink(missing_ok=True)
+
+    @staticmethod
+    def _write_new(path: Path, data: bytes) -> None:
+        """Create ``path`` owner-only with ``data``; never through a link, never over a file."""
+        nofollow = getattr(os, "O_NOFOLLOW", 0)
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | nofollow, 0o600)
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(data)
+            fh.flush()
+            os.fsync(fh.fileno())
+
+    @staticmethod
+    def _temp(job: HarmonizeJob, output: Path, name: str) -> Path:
+        return output / f".{name}.{job.job_id}.tmp"
 
 
 def _errored_rows(report: Any) -> int:  # noqa: ANN401 — either report class

@@ -162,6 +162,8 @@ class EntryIndex(BaseModel):
     content_hash: str
     built_utc: str
     skipped_no_node: int = 0
+    # Capture requests attempted so far, across every resume: the cap is per job, not per run.
+    capture_requests: int = 0
     entries: list[ReviewEntry] = Field(default_factory=list)
 
     def counts(self) -> dict[str, int]:
@@ -199,6 +201,33 @@ class EntryStore:
         path = self.path(index.job_id)
         private_dir(path.parent)
         write_private(path, index.model_dump_json(indent=1))
+
+    def refresh(self, job_id: str, ref: str, status: str, reason: str | None,
+                superseding_ref: str | None) -> None:
+        """Bring a row entry in line with a later ``get_candidates`` fetch on its reference.
+
+        Without this the list keeps showing what the capture stage saw (a ``fetch_failed`` that
+        a retry has since repaired), and a reference issued by a later run mismatch is unknown
+        to ``get_review_item``. Only for a finished job: the capture stage owns the index of a
+        running one.
+        """
+        index = self.load(job_id)
+        if index is None:
+            return
+        entry = next((e for e in index.entries
+                      if e.kind == "row" and ref in (e.ref, e.superseding_ref)), None)
+        if entry is None:
+            return
+        entry.candidates_status, entry.candidates_reason = status, reason
+        if superseding_ref:
+            entry.superseding_ref = superseding_ref
+        self.save(index)
+
+
+def discard(jdir: Path) -> None:
+    """Remove a job's review index and every reference issued for it."""
+    for stale in ("refs", "links", REVIEW_DIR):
+        shutil.rmtree(jdir / stale, ignore_errors=True)
 
 
 # ---------------------------------------------------------------------------
@@ -660,9 +689,7 @@ async def build_and_capture(
     index = store.load(job.job_id)
     if (index is None or index.content_hash != digest or index.kg_build != build
             or not _refs_intact(m.refs, index)):
-        jdir = m._dir(job.job_id)
-        for stale in ("refs", "links", REVIEW_DIR):
-            shutil.rmtree(jdir / stale, ignore_errors=True)
+        discard(m._dir(job.job_id))
         _issue(m.refs, job, entries, results, category, build)
         index = EntryIndex(job_id=job.job_id, kg_build=build, category=category,
                            content_hash=digest, built_utc=utc(cfg.wall_clock()),
@@ -719,14 +746,15 @@ async def _capture(
     """Candidates for row entries and node names for link entries, in impact order.
 
     Resumable: an entry that is no longer ``pending`` is skipped, and the index is saved after
-    each one. Bounded: at most ``capture_max_entities`` requests; three failed fetches in a row
-    stop the stage (the rest is marked ``not_captured``) rather than hammer a deployment that is
-    down.
+    each one. Bounded: at most ``capture_max_entities`` requests for the job, however often it is
+    resumed (the count is saved with the index before each request); three failed fetches in a
+    row stop the stage (the rest is marked ``not_captured``) rather than hammer a deployment that
+    is down.
     """
     m = runner.m
     cfg = m.config
     n = cfg.capture_top_n
-    budget = cfg.capture_max_entities
+    budget = cfg.capture_max_entities - index.capture_requests
     failures = 0
     known: dict[str, str] = {}
     for entry in index.entries:  # names captured before an interruption
@@ -736,6 +764,13 @@ async def _capture(
 
     def spent() -> bool:
         return budget <= 0 or failures >= CAPTURE_HALT_AFTER
+
+    def charge() -> None:
+        """Count one request BEFORE it is sent, so an interrupted one is still counted."""
+        nonlocal budget
+        budget -= 1
+        index.capture_requests += 1
+        store.save(index)
 
     for entry in index.entries:
         changed = False
@@ -748,7 +783,7 @@ async def _capture(
                 entry.candidates_reason = ("capture_halted" if failures >= CAPTURE_HALT_AFTER
                                            else "over_capture_cap")
             else:
-                budget -= 1
+                charge()
                 result, reason = await _fetch(runner, job, entry.query_name, category, n)
                 try:
                     record = m.refs.load(entry.ref)
@@ -777,7 +812,7 @@ async def _capture(
                 elif spent():
                     side.node_name_status = "not_captured"
                 else:
-                    budget -= 1
+                    charge()
                     result, reason = await _fetch(runner, job, side.probe_name, category, n)
                     if result is None or cands.remap_error(result) is not None:
                         side.node_name_status = "fetch_failed"
