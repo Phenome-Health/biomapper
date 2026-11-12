@@ -38,7 +38,7 @@ import re
 import sys
 import warnings
 from collections import Counter
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
@@ -693,11 +693,18 @@ class CohortHarmonizationReport:
             ),
         )
 
-    def write(self, path: str | os.PathLike[str] | None = None) -> Path:
+    def write(
+        self,
+        path: str | os.PathLike[str] | None = None,
+        *,
+        on_message: Callable[[str], None] | None = None,
+    ) -> Path:
         """Write every table and the summary; return the directory.
 
         ``path`` defaults to this report's ``output_dir``, or a new
         ``biomapper_runs/harmonize_cohorts_<UTC timestamp>/`` under the current directory.
+        ``on_message`` receives the "wrote results" message instead of stdout (see
+        :func:`harmonize_cohorts`).
         """
         if path is not None:
             directory = Path(path).resolve()
@@ -741,7 +748,7 @@ class CohortHarmonizationReport:
             json.dumps(self.summary(), indent=1, sort_keys=True) + "\n"
         )
         self.output_dir = directory
-        print(f"harmonize_cohorts: wrote results to {directory}")
+        (on_message or print)(f"harmonize_cohorts: wrote results to {directory}")
         return directory
 
 
@@ -798,8 +805,10 @@ def harmonize_cohorts(
     api_key: str | None = None,
     kestrel_url: str = DEFAULT_KESTREL_URL,
     probe_pins: bool = True,
+    pins: Mapping[str, Any] | None = None,
     output_dir: str | os.PathLike[str] | None = None,
     save: bool = True,
+    on_message: Callable[[str], None] | None = None,
 ) -> CohortHarmonizationReport:
     """Harmonize two cohort tables with the names-first protocol, and report both arms.
 
@@ -824,9 +833,16 @@ def harmonize_cohorts(
         base_url, api_key: Passed to the default mapper and the API health pin.
         kestrel_url: The Kestrel root whose ``/health`` pins the KG build (recorded).
         probe_pins: Read the API and Kestrel ``/health`` endpoints for the pins (default True).
+        pins: An already-taken pin block (``{"kestrel": {"kg_build": ...}, ...}``) recorded
+            instead of probing, as in :func:`biomapper.harmonize_many`. When given, no ``/health``
+            request is made.
         output_dir: Where to write; default ``biomapper_runs/harmonize_cohorts_<UTC stamp>/``.
         save: Write results (default True). Each arm is written as soon as it completes, so a
             failure keeps finished work; ``report.write()`` can always be called later.
+        on_message: A callable that receives the messages this function would print to stdout
+            (the "wrote results" line). Default: print them. A caller that owns stdout, such as
+            the MCP server's stdio transport, passes one. Progress lines (``progress=True``) and
+            warnings go to stderr and are not routed.
 
     Returns:
         A :class:`CohortHarmonizationReport`.
@@ -1030,14 +1046,19 @@ def harmonize_cohorts(
         diff=compute_diff(names_only.links, identifier.links) if identifier is not None else None,
         review=tuple(review),
         warnings=tuple(run_warnings),
-        pins=_collect_pins(
-            probe=probe_pins, base_url=api_base, api_key=api_key, kestrel_url=kestrel_url,
-            mapper=the_mapper,
+        pins=(
+            {**dict(pins), "mapper": type(the_mapper).__name__,
+             "mapper_pins": getattr(the_mapper, "pins", None)}
+            if pins is not None
+            else _collect_pins(
+                probe=probe_pins, base_url=api_base, api_key=api_key, kestrel_url=kestrel_url,
+                mapper=the_mapper,
+            )
         ),
         excluded={c.label: c.excluded for c in cohorts},
         mappings=mappings,
         output_dir=directory,
     )
     if directory is not None:
-        report.write(directory)
+        report.write(directory, on_message=on_message)
     return report

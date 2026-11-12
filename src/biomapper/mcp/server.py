@@ -34,6 +34,7 @@ from biomapper.client import BioMapperClient
 from biomapper.exceptions import BioMapperError
 from biomapper.mcp import candidates as cands
 from biomapper.mcp import judgments as judg
+from biomapper.mcp import review_entries as rev
 from biomapper.mcp import tools
 from biomapper.mcp._storage import utc
 from biomapper.mcp.config import ServerConfig
@@ -45,21 +46,25 @@ from biomapper.mcp.gate import (
     LoopGuardTripped,
     RequestGate,
 )
+from biomapper.mcp.harmonize_jobs import CohortSpec
 from biomapper.mcp.jobs import (
+    HarmonizeJob,
+    HarmonizeStatus,
     JobError,
     JobManager,
     JobStatus,
+    JobStatusBase,
     JobStatusList,
     probe_pins,
     roots_from_uris,
 )
 from biomapper.mcp.references import (
     CandidateSet,
-    RefEngine,
     RefError,
     RefRecord,
     RefSource,
     RefStore,
+    parse_ref,
 )
 from biomapper.models import MappingResult
 
@@ -247,6 +252,109 @@ def _load_ref(state: AppState, ref: str, roots: list[Path]) -> RefRecord:
     return record
 
 
+FINISHED = ("complete", "partial")
+
+
+def _review_index(
+    state: AppState, job_id: str, roots: list[Path]
+) -> tuple[HarmonizeJob, rev.EntryIndex]:
+    """A finished harmonize job the session may read, and its review index."""
+    try:
+        job = state.jobs._require_job(job_id)
+    except JobError as exc:
+        raise ToolError(str(exc)) from None
+    if not state.jobs._within(job, state.jobs.allowed_roots(roots)):
+        raise ToolError(
+            f"Job {job_id!r} reads or writes files outside the folders allowed in this session."
+        )
+    if not isinstance(job, HarmonizeJob):
+        raise ToolError(
+            f"Job {job_id} is a map_file job: its weak rows are in <output>.weak.tsv, with a "
+            "ref each for get_candidates. Review items belong to harmonize jobs."
+        )
+    if job.state not in FINISHED:
+        raise ToolError(
+            f"Job {job_id} is {job.state} (stage {job.stage}); its review items are available "
+            "once it is complete. Poll job_status."
+        )
+    index = rev.EntryStore(state.config.home).load(job_id)
+    if index is None:
+        raise ToolError(f"Job {job_id} has no readable review list.")
+    return job, index
+
+
+def _load_link(
+    state: AppState, ref: str, roots: list[Path]
+) -> tuple[HarmonizeJob, rev.EntryIndex, rev.ReviewEntry]:
+    """A link review item by reference: format first, then the job's roots, then the record."""
+    try:
+        kind, job_id = parse_ref(ref)
+    except RefError as exc:
+        raise ToolError(str(exc)) from None
+    assert kind == "link" and job_id is not None
+    if state.jobs._load(job_id) is None:
+        raise ToolError(f"No review item {ref!r} (its job no longer exists).")
+    job, index = _review_index(state, job_id, roots)
+    entry = index.find(ref)
+    if entry is None or entry.kind != "link":
+        raise ToolError(f"No review item {ref!r} in job {job_id}.")
+    return job, index, entry
+
+
+def _suggestion_of(state: AppState) -> Callable[[rev.ReviewEntry], str | None]:
+    store = judg.SuggestionStore(state.refs, wall_clock=state.config.wall_clock)
+
+    def current(entry: rev.ReviewEntry) -> str | None:
+        if entry.kind == "link":
+            link = store.current_link(entry.ref)
+            return link.choice if link is not None else None
+        for ref in (entry.superseding_ref, entry.ref):
+            if ref:
+                row = store.current(ref)
+                if row is not None:
+                    return row.choice
+        return None
+
+    return current
+
+
+def _captured(state: AppState, record: RefRecord, n: int) -> cands.RefCandidates | None:
+    """Candidates the harmonize job captured for ``record``, when they answer this call.
+
+    A ref superseded by a run mismatch at capture is followed to its replacement. ``None`` means
+    fetch as usual (a map_file or interactive ref, nothing usable captured, or more candidates
+    asked for than were captured).
+    """
+    if record.source != "job" or not isinstance(
+        state.jobs._load(record.job_id or ""), HarmonizeJob
+    ):
+        return None
+    final = record
+    for _ in range(5):
+        if not final.superseded_by:
+            break
+        try:
+            final = state.refs.load(final.superseded_by)
+        except RefError:
+            return None
+    stored = final.candidates
+    if stored is None or stored.status not in ("present", "none_searched") or stored.n < n:
+        return None
+    return cands.RefCandidates(
+        ref=final.ref_id,
+        query_name=cands.sanitize(final.query.name),
+        weak_trigger=final.weak_trigger,
+        engine_choice=final.engine_choice,
+        certificate_state=final.engine.certificate_state,
+        status=stored.status,
+        reason=stored.reason,
+        n=n,
+        candidates=stored.items[:n],
+        captured_utc=stored.fetched_utc,
+        followed_from=record.ref_id if final.ref_id != record.ref_id else None,
+    )
+
+
 async def _await_pins(state: AppState, limit_s: float = 5.0) -> None:
     with anyio.move_on_after(limit_s):
         await state.pins_ready.wait()
@@ -267,30 +375,38 @@ def build_server(config: ServerConfig | None = None) -> MCPServer[AppState]:
                 base_url=cfg.base_url, timeout=cfg.interactive_timeout_s, **key_kwargs
             ) as interactive,
             BioMapperClient(base_url=cfg.base_url, timeout=cfg.job_timeout_s, **key_kwargs) as jc,
-            anyio.create_task_group() as tg,
         ):
             refs = RefStore(cfg.home, wall_clock=cfg.wall_clock, ttl_s=cfg.ref_ttl_s)
             jobs = JobManager(cfg, gate=gate, client=jc, refs=refs)
-            state = AppState(
-                config=cfg,
-                interactive=interactive,
-                job_client=jc,
-                gate=gate,
-                guard=LoopGuard(cfg.loop_limit, cfg.loop_window_s, clock=cfg.monotonic),
-                jobs=jobs,
-                refs=refs,
-                candidate_budget=CandidateBudget(
-                    cfg.candidate_budget, cfg.candidate_window_s, clock=cfg.monotonic
-                ),
-            )
-            tg.start_soon(state.load_pins)
-            tg.start_soon(jobs.run_worker)
-            tg.start_soon(jobs.auto_resume, roots_from_uris([]))
             try:
-                yield state
+                async with anyio.create_task_group() as tg:
+                    state = AppState(
+                        config=cfg,
+                        interactive=interactive,
+                        job_client=jc,
+                        gate=gate,
+                        guard=LoopGuard(cfg.loop_limit, cfg.loop_window_s, clock=cfg.monotonic),
+                        jobs=jobs,
+                        refs=refs,
+                        candidate_budget=CandidateBudget(
+                            cfg.candidate_budget, cfg.candidate_window_s, clock=cfg.monotonic
+                        ),
+                    )
+                    tg.start_soon(state.load_pins)
+                    tg.start_soon(jobs.run_worker)
+                    tg.start_soon(jobs.auto_resume, roots_from_uris([]))
+                    try:
+                        yield state
+                    finally:
+                        # A harmonize job runs a synchronous function on a worker thread. The
+                        # cancel reaches it at its next bridge call, and the task group does
+                        # not exit until that thread has, so it cannot outlive the server
+                        # holding a saved-mapping store's lock.
+                        jobs.begin_shutdown()
+                        tg.cancel_scope.cancel()
             finally:
+                # Job locks go last, after the worker (and its thread) are gone.
                 jobs.close()
-                tg.cancel_scope.cancel()
 
     server: MCPServer[AppState] = MCPServer(
         "biomapper",
@@ -459,6 +575,14 @@ def build_server(config: ServerConfig | None = None) -> MCPServer[AppState]:
                 "corroborated on the re-map that issued them), so there is nothing to review. "
                 "Use the candidates already returned with them, or record_suggestion."
             )
+        # 1.9.0: what a harmonize job captured is returned as is: no request, no budget.
+        ready = {i: hit for i, r in enumerate(records)
+                 if (hit := _captured(state, r, top_n)) is not None}
+        records = [r for i, r in enumerate(records) if i not in ready]
+        if not records:
+            return cands.GetCandidatesResult(
+                results=[ready[i] for i in sorted(ready)], provenance=state.provenance()
+            )
         if state.candidate_budget.available() < len(records):
             raise ToolError(state.candidate_budget.refusal(len(records)))
 
@@ -500,11 +624,15 @@ def build_server(config: ServerConfig | None = None) -> MCPServer[AppState]:
             deadline_s=end - anyio.current_time() - side,
         )
         build = await _fresh_build(state, limit_s=max(0.0, end - anyio.current_time()))
+        finished = [
+            _finish_ref(state, record, result, reason, top_n, build)
+            for record, (result, reason) in zip(records, outcomes, strict=True)
+        ]
+        for record, out in zip(records, finished, strict=True):
+            _refresh_review_entry(state, record, out)
+        fetched = iter(finished)
         return cands.GetCandidatesResult(
-            results=[
-                _finish_ref(state, record, result, reason, top_n, build)
-                for record, (result, reason) in zip(records, outcomes, strict=True)
-            ],
+            results=[ready[i] if i in ready else next(fetched) for i in range(len(wanted))],
             provenance=state.provenance(),
         )
 
@@ -517,7 +645,46 @@ def build_server(config: ServerConfig | None = None) -> MCPServer[AppState]:
         roots: ClientRoots,
     ) -> judg.SuggestionResult:
         state = _state(ctx)
-        record = _load_ref(state, ref, roots_from_uris(roots.roots))
+        client_roots = roots_from_uris(roots.roots)
+        store = judg.SuggestionStore(state.refs, wall_clock=state.config.wall_clock)
+
+        def harmonize_rows(job: HarmonizeJob) -> list[list[Any]]:
+            index = rev.EntryStore(state.config.home).load(job.job_id)
+            links = [e.ref for e in index.entries if e.kind == "link"] if index else []
+            return [*store.job_rows(job.job_id), *store.link_rows(links)]
+
+        try:
+            ref_kind, _ = parse_ref(ref)
+        except RefError as exc:
+            raise ToolError(str(exc)) from None
+        if ref_kind == "link":
+            # A link review item of a harmonize job: same, different or cannot_tell.
+            link_job, _index, entry = _load_link(state, ref, client_roots)
+            try:
+                answer = judg.validate_link_choice(choice)
+                state.jobs.check_choices_writable(link_job)
+            except (judg.JudgmentError, JobError) as exc:
+                raise ToolError(str(exc)) from None
+            made = store.record_link(
+                ref, link_job.job_id, answer, rationale,
+                nodes=[s.node for s in entry.sides],
+                labels=[s.rows[0].name if s.rows else "" for s in entry.sides],
+                reasons=entry.review_reasons or entry.bases,
+            )
+            try:
+                written = str(state.jobs.write_choices(link_job, harmonize_rows(link_job)))
+            except (JobError, OSError) as exc:
+                raise ToolError(
+                    f"The suggestion was recorded ({made.suggestion_id}), but "
+                    f"{link_job.choices_path.name} could not be rewritten: {exc}"
+                ) from None
+            return judg.SuggestionResult(
+                suggestion_id=made.suggestion_id, ref=ref, choice=made.choice,
+                choice_source="link", supersedes=made.supersedes,
+                recorded_utc=made.recorded_utc, choices_path=written,
+            )
+
+        record = _load_ref(state, ref, client_roots)
         try:
             canonical, source, backing = judg.validate_choice(record, choice)
         except judg.JudgmentError as exc:
@@ -527,16 +694,22 @@ def build_server(config: ServerConfig | None = None) -> MCPServer[AppState]:
             job = state.jobs._load(record.job_id or "")
             if job is None:
                 raise ToolError(f"Reference {ref!r} belongs to a job that no longer exists.")
+            if isinstance(job, HarmonizeJob) and job.state not in FINISHED:
+                raise ToolError(
+                    f"Job {job.job_id} is {job.state}; suggestions on its review items are "
+                    "recorded once it is complete."
+                )
             try:
                 state.jobs.check_choices_writable(job)
             except JobError as exc:
                 raise ToolError(str(exc)) from None
-        store = judg.SuggestionStore(state.refs, wall_clock=state.config.wall_clock)
         suggestion = store.record(record, canonical, source, rationale, backing)
         choices_path: str | None = None
         if job is not None:
             try:
-                choices_path = str(state.jobs.write_choices(job, store.job_rows(job.job_id)))
+                rows = (harmonize_rows(job) if isinstance(job, HarmonizeJob)
+                        else store.job_rows(job.job_id))
+                choices_path = str(state.jobs.write_choices(job, rows))
             except (JobError, OSError) as exc:
                 raise ToolError(
                     f"The suggestion was recorded ({suggestion.suggestion_id}), but "
@@ -555,6 +728,76 @@ def build_server(config: ServerConfig | None = None) -> MCPServer[AppState]:
     # Status-like keys (status, human_confirmed, ...) must be refused, not silently dropped: a
     # suggestion has no status, and an agent that thinks it set one would misreport it.
     _forbid_extra_arguments(server, "record_suggestion")
+
+    # ------------------------------------------------------------------
+    # Review items of a harmonize job (1.9.0): read-only, no request to BioMapper
+    # ------------------------------------------------------------------
+
+    @server.tool(description=tools.REVIEW_DESCRIPTIONS["list_review_items"])
+    async def list_review_items(
+        job_id: str,
+        ctx: Context[AppState, Any],
+        roots: ClientRoots,
+        kind: Literal["row", "link"] | None = None,
+        offset: int = 0,
+        limit: int | None = None,
+    ) -> rev.ReviewItemsPage:
+        state = _state(ctx)
+        cfg = state.config
+        size = cfg.review_page_default if limit is None else limit
+        size = min(size, cfg.review_page_max) if limit is None else size
+        if not 1 <= size <= cfg.review_page_max:
+            raise ToolError(
+                f"limit must be between 1 and {cfg.review_page_max} (got {size}); a page takes "
+                f"at most {cfg.review_page_max} items. Use next_offset for the next page."
+            )
+        if offset < 0:
+            raise ToolError(f"offset must be 0 or more (got {offset}).")
+        _job, index = _review_index(state, job_id, roots_from_uris(roots.roots))
+        return rev.page(index, kind=kind, offset=offset, limit=size,
+                        suggestion_of=_suggestion_of(state))
+
+    @server.tool(description=tools.REVIEW_DESCRIPTIONS["get_review_item"])
+    async def get_review_item(
+        ref: str, ctx: Context[AppState, Any], roots: ClientRoots
+    ) -> rev.ReviewItemDetail:
+        state = _state(ctx)
+        client_roots = roots_from_uris(roots.roots)
+        try:
+            ref_kind, job_id = parse_ref(ref)
+        except RefError as exc:
+            raise ToolError(str(exc)) from None
+        if ref_kind == "link":
+            _job, index, entry = _load_link(state, ref, client_roots)
+        else:
+            record = _load_ref(state, ref, client_roots)
+            if record.source != "job" or not isinstance(
+                state.jobs._load(record.job_id or ""), HarmonizeJob
+            ):
+                raise ToolError(
+                    f"Reference {ref!r} is not a review item of a harmonize job. Use "
+                    "get_candidates for the weak rows of map_entity, map_batch and map_file."
+                )
+            _job, index = _review_index(state, record.job_id or "", client_roots)
+            # A ref replaced by a later run mismatch still names its item: follow it forward.
+            chain = {ref}
+            for _ in range(5):
+                if not record.superseded_by:
+                    break
+                chain.add(record.superseded_by)
+                try:
+                    record = state.refs.load(record.superseded_by)
+                except RefError:
+                    break
+            found = next((e for e in index.entries
+                          if e.kind == "row" and chain & {e.ref, e.superseding_ref}), None)
+            if found is None:
+                raise ToolError(f"No review item {ref!r} in job {record.job_id}.")
+            entry = found
+        return rev.detail(entry, index, _suggestion_of(state)(entry))
+
+    _forbid_extra_arguments(server, "list_review_items")
+    _forbid_extra_arguments(server, "get_review_item")
 
     _register_job_tools(server)
     return server
@@ -604,16 +847,7 @@ async def _fresh_build(state: AppState, limit_s: float = 5.0) -> str:
 
 def _store_set(state: AppState, record: RefRecord, cset: CandidateSet) -> None:
     """Store a fetched set on the ref, merged into its latest copy on disk under its lock."""
-
-    def put(fresh: RefRecord) -> None:
-        if fresh.candidates is not None:
-            fresh.candidate_history.append(fresh.candidates)
-        fresh.candidates = cset
-
-    try:
-        state.refs.update(record.ref_id, put)
-    except OSError:
-        logger.warning("could not store candidates on %s", record.ref_id, exc_info=True)
+    cands.store_set(state.refs, record, cset)
 
 
 def _finish_ref(
@@ -625,65 +859,81 @@ def _finish_ref(
     build: str,
 ) -> cands.RefCandidates:
     """Turn one re-map outcome into the ref's status, and store what was fetched on the ref."""
-    now = utc(state.config.wall_clock())
-    out = cands.RefCandidates(
-        ref=record.ref_id,
-        query_name=record.query.name,
-        weak_trigger=record.weak_trigger,
-        engine_choice=record.engine_choice,
-        certificate_state=record.engine.certificate_state,
-        status="fetch_failed",
-        reason=reason,
-        n=n,
-    )
-    row_error = None if result is None else cands.remap_error(result)
-    if result is None or row_error is not None:
-        out.reason = reason if result is None else row_error
-        _store_set(state, record, CandidateSet(status="fetch_failed", reason=out.reason, n=n,
-                                               fetched_utc=now))
-        return out
-    mismatch = cands.verify(record, result, build)
-    if mismatch is not None:
-        # Anchor a fresh ref to the re-map so the agent can carry on deliberately. The original
-        # keeps its engine answer; its stored set is marked unusable.
-        status, why, items, raw = cands.compact(result, RefEngine.of(result), n=n)
-        out.status, out.reason = "run_mismatch", mismatch
-        _store_set(state, record, CandidateSet(status="run_mismatch", reason=mismatch, n=n,
-                                               fetched_utc=now, raw_sha256=raw))
-        try:
-            new = state.refs.issue(
-                source=record.source,
-                job_id=record.job_id,
-                row_key=record.row_key,
-                query=record.query.model_dump(),
-                result=result,
-                weak_trigger=tools.weak_trigger(result, record.query.entity_type),
-                kg_build=build,
-                supersedes=record.ref_id,
-            )
-        except (OSError, RefError):
-            logger.warning("could not issue a superseding ref", exc_info=True)
-            return out
-        _store_set(state, new, CandidateSet(status=status, reason=why, n=n, fetched_utc=now,
-                                            raw_sha256=raw, items=items))
-        record.superseded_by = new.ref_id
-        try:
-            state.refs.update(record.ref_id, lambda fresh: setattr(fresh, "superseded_by",
-                                                                  new.ref_id))
-        except OSError:
-            logger.warning("could not link %s to its successor", record.ref_id, exc_info=True)
-        out.superseding_ref = new.ref_id
-        out.candidates = items
-        return out
-    status, why, items, raw = cands.compact(result, record.engine, n=n)
-    out.status, out.reason, out.candidates = status, why, items
-    _store_set(state, record, CandidateSet(status=status, reason=why, n=n, fetched_utc=now,
-                                           raw_sha256=raw, items=items))
-    return out
+    return cands.finish_ref(state.refs, utc(state.config.wall_clock()), record, result, reason,
+                            n, build)
+
+
+def _refresh_review_entry(state: AppState, record: RefRecord, out: cands.RefCandidates) -> None:
+    """After a fetch on a harmonize job's reference, update its review item to match.
+
+    Only for a finished job (the capture stage owns the index of a running one). A failure to
+    write is logged, never raised: the fetch itself succeeded and is stored on the reference.
+    """
+    if record.source != "job":
+        return
+    job = state.jobs._load(record.job_id or "")
+    if not isinstance(job, HarmonizeJob) or job.state not in FINISHED:
+        return
+    try:
+        counts = rev.EntryStore(state.config.home).refresh(
+            job.job_id, record.ref_id, out.status, out.reason, out.superseding_ref
+        )
+        # job_status reports the counts kept on the job record: keep them in step with the list.
+        if counts is not None and counts != job.review:
+            job.review = counts
+            state.jobs._save(job)
+    except OSError:
+        logger.warning("could not update the review item of %s", record.ref_id, exc_info=True)
 
 
 def _register_job_tools(server: MCPServer[AppState]) -> None:
     from biomapper.mcp.jobs import JOB_TOOL_DESCRIPTIONS, JobError
+
+    @server.tool(description=tools.HARMONIZE_DESCRIPTIONS["harmonize_cohorts"])
+    async def harmonize_cohorts(
+        a: CohortSpec,
+        b: CohortSpec,
+        entity: str,
+        ctx: Context[AppState, Any],
+        roots: ClientRoots,
+        output_dir: str | None = None,
+        category: str | None = None,
+    ) -> HarmonizeStatus:
+        state = _state(ctx)
+        try:
+            return await state.jobs.harmonize.submit(
+                kind="harmonize_cohorts", specs=[a, b], entity=entity, category=category,
+                output_dir=output_dir, store_dir=None, remap_all=False,
+                client_roots=roots_from_uris(roots.roots),
+            )
+        except JobError as exc:
+            raise ToolError(str(exc)) from None
+
+    @server.tool(description=tools.HARMONIZE_DESCRIPTIONS["harmonize_many"])
+    async def harmonize_many(
+        cohorts: list[CohortSpec],
+        entity: str,
+        ctx: Context[AppState, Any],
+        roots: ClientRoots,
+        output_dir: str | None = None,
+        store_dir: str | None = None,
+        category: str | None = None,
+        remap_all: bool = False,
+    ) -> HarmonizeStatus:
+        state = _state(ctx)
+        try:
+            return await state.jobs.harmonize.submit(
+                kind="harmonize_many", specs=list(cohorts), entity=entity, category=category,
+                output_dir=output_dir, store_dir=store_dir, remap_all=remap_all,
+                client_roots=roots_from_uris(roots.roots),
+            )
+        except JobError as exc:
+            raise ToolError(str(exc)) from None
+
+    # A misspelled option (remap=true, output=...) must be refused, not silently dropped: the
+    # job would run for hours with a setting the agent believes it changed.
+    _forbid_extra_arguments(server, "harmonize_cohorts")
+    _forbid_extra_arguments(server, "harmonize_many")
 
     @server.tool(description=JOB_TOOL_DESCRIPTIONS["map_file"])
     async def map_file(
@@ -727,7 +977,7 @@ def _register_job_tools(server: MCPServer[AppState]) -> None:
     @server.tool(description=JOB_TOOL_DESCRIPTIONS["resume_job"])
     async def resume_job(
         job_id: str, ctx: Context[AppState, Any], roots: ClientRoots
-    ) -> JobStatus:
+    ) -> JobStatusBase:
         state = _state(ctx)
         try:
             return await state.jobs.resume(job_id, client_roots=roots_from_uris(roots.roots))
@@ -737,7 +987,7 @@ def _register_job_tools(server: MCPServer[AppState]) -> None:
     @server.tool(description=JOB_TOOL_DESCRIPTIONS["cancel_job"])
     async def cancel_job(
         job_id: str, ctx: Context[AppState, Any], roots: ClientRoots
-    ) -> JobStatus:
+    ) -> JobStatusBase:
         state = _state(ctx)
         try:
             return await state.jobs.cancel(job_id, client_roots=roots_from_uris(roots.roots))

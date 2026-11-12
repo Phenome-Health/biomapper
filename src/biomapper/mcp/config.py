@@ -75,6 +75,26 @@ class ServerConfig:
     systemic_backoff_s: float = 30.0
     seconds_per_entity_seed: float = SECONDS_PER_ENTITY_SEED
 
+    # Harmonize jobs (1.9.0). Hard caps, checked at submit before any file is created: a job maps
+    # every unique name at about 4.4 s each behind the one request gate, so an unbounded cohort
+    # would hold the worker (and every file job queued behind it) for days.
+    harmonize_max_cohorts: int = 12
+    harmonize_max_rows: int = 20_000
+    harmonize_max_bytes: int = 50 * 1024 * 1024
+    harmonize_max_queued: int = 3
+    # One mapping request from the worker thread, gate wait included. Above job_timeout_s (the
+    # HTTP timeout) so a slow request fails as an HTTP timeout first; this bound is what stops a
+    # wedged bridge from holding the thread, and with it the saved-mapping store's lock, forever.
+    bridge_timeout_s: float = 900.0
+    # The capture stage re-maps weak entities with candidates and looks up link-node names inside
+    # the job, in impact order, up to this many requests. Entries past it are "not_captured".
+    capture_max_entities: int = 200
+    capture_top_n: int = 10
+    review_page_default: int = 25
+    review_page_max: int = 50
+    link_member_cap: int = 50
+    link_identifier_cap: int = 12
+
     # Clocks: wall time for persisted timestamps, monotonic for durations and the loop guard.
     wall_clock: Callable[[], float] = time.time
     monotonic: Callable[[], float] = time.monotonic

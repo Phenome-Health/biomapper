@@ -705,10 +705,14 @@ Desktop shares no project roots:
 | `map_entity` | one name (plus optional identifier hints) to KG identifiers |
 | `map_batch` | up to **5** entities in one request; more is refused and pointed to `map_file` |
 | `map_file` | a TSV/CSV of any length as a resumable **background job**; returns a `job_id` and an ETA at once |
-| `job_status`, `resume_job`, `cancel_job` | follow, continue, or stop a file job |
+| `job_status`, `resume_job`, `cancel_job` | follow, continue, or stop a background job (file or harmonize) |
 | `server_info` | version, KG provenance, limits, and the folders `map_file` may use |
 | `get_candidates` | for **weak** results only: the engine's top-N alternatives for up to 3 refs (see below) |
-| `record_suggestion` | record your agent's pick for one weak ref (an agent suggestion, never a resolution) |
+| `record_suggestion` | record your agent's pick for one weak ref or review item (an agent suggestion, never a resolution) |
+| `harmonize_cohorts` | harmonize **two** cohort files as a resumable background job (see "Harmonizing through an agent") |
+| `harmonize_many` | harmonize **two or more** cohort files in one pinned run, reusing saved mappings |
+| `list_review_items` | after a harmonize job: its review items, one page at a time, largest impact first |
+| `get_review_item` | the evidence for one review item (both sides of a link) |
 
 Every result says `resolved`, `unresolved`, `refused`, or `error`. An `error` is a failed call,
 never a confirmed no-match. Results carry a compact provenance block (client version, API URL,
@@ -751,6 +755,90 @@ queues it. `identifier_columns` maps a column to its vocabulary, e.g. `{"hmdb_id
   per unique entity. It is written (header only when there are none) before the main output, is
   never overwritten, and an existing one refuses the job at submit. The main output's columns are
   unchanged.
+
+### Harmonizing through an agent
+
+`harmonize_cohorts` and `harmonize_many` run the Python API's functions of the same names,
+unchanged, as background jobs. The report files are the ones the Python API writes (see
+"Harmonizing two cohorts in one call" and "Harmonizing more than two cohorts" above), and for the
+same per-entity answers they are identical apart from the recorded mapper class name and
+timestamps.
+
+```json
+{"cohorts": [
+   {"label": "ukbb", "path": "ukbb_nmr.tsv", "name_column": "title", "key_column": "field_id"},
+   {"label": "arivale", "path": "arivale_metabolomics.tsv", "name_column": "BIOCHEMICAL_NAME",
+    "vocabularies": {"HMDB": ["HMDB"], "KEGG": ["KEGG"]}}],
+ "entity": "metabolites"}
+```
+
+- **What leaves your machine.** Only the entity names in each `name_column`, and the identifiers
+  in vocabulary columns that every cohort declares, are sent to the BioMapper API. Row keys and
+  every other column stay local. `vocabularies` maps a vocabulary to its column(s), the reverse
+  of `map_file`'s `identifier_columns`; unknown arguments are refused rather than ignored.
+- **How long it takes.** About 4-5 s per unique name that is not already saved, behind the same
+  one-request gate as everything else, so a few thousand new names take hours. **One background
+  job runs at a time**: a harmonize job and a `map_file` job queue behind each other, and
+  interactive calls interleave between chunks. `job_status` shows the `stage`: `mapping`,
+  `building` (review items), `capture` (their evidence), `placing`, `done`.
+- **Output.** The job works in a private staging folder and writes the report into `output_dir`
+  **once, at the end**: owner-only files, never through a link, never over an existing report.
+  The default `output_dir` is a new folder beside the first cohort file. A cancelled, stalled or
+  interrupted job has written nothing there.
+- **Resume.** Every answered entity is cached in the job's home, so `resume_job` (or the next
+  session, automatically) continues without re-mapping. The same call submitted again returns
+  the same job; a `failed` job is retried by submitting the same call again.
+- **Saved mappings and the publication grade (`harmonize_many`).** Mappings are saved in
+  `store_dir` (default `harmonize_many_store/` beside `output_dir`) under the 1.8.0 rules, shared
+  with the Python API. Before mapping, a job makes the one store folder it appends to
+  (`<store>/<arm>/<category>/`) and the files in it owner-only, so a store first written by a
+  Python run is no longer readable by other local users; the store root and anything else in it
+  keep their permissions, and a readable entry owned by another user is refused. Reuse: a later run maps only new names and is
+  `iteration-grade, not for publication`. `remap_all=true` maps everything again and, on a
+  verified KG build, is `publishable`. **A `remap_all` job that is interrupted and resumed
+  finishes iteration-grade**, and its summary says so: the resumed pass reuses the chunks saved
+  before the interruption. A publishable run needs one uninterrupted pass.
+- **The store lock.** The store is locked for the whole job, so a Python API run on the same
+  store is refused meanwhile (and the other way round: the job fails with the lock's path and
+  holder). A server that is killed outright can leave `store.lock` behind; the next job reports
+  its path, and deleting that file is safe once no run is active. A store written on a different
+  KG build fails the job before any request, naming `remap_all`.
+- **Errored rows.** A whole chunk that fails is sent again (three in a row stall the job), and a
+  row that errors on its own is retried up to three times. This is the one place a job differs
+  from the Python API, whose default mapper does not retry. A job that still ends with errored
+  rows is `partial`: the report is written, the rows are marked as errors and never as
+  unresolved, and the job is not resumed. Submit again with a new `output_dir` to retry;
+  `harmonize_many` reuses the store, so only the errored rows are mapped.
+- **Limits.** 12 cohorts per job, 20,000 rows and 50 MB per cohort file, 3 unfinished harmonize
+  jobs per session. Labels are 1 to 40 letters, digits, `.`, `-` or `_`.
+
+**Review items.** When the job is complete, `list_review_items(job_id)` returns the questions the
+run could not settle, from the names-only arm, largest impact first:
+
+| kind | what it is | impact | evidence | suggestion |
+|---|---|---|---|---|
+| `row` | one weak entity (unresolved, refused, uncorroborated, contradicted), asked once however many rows and cohorts share the name | input rows sharing it | `get_candidates(ref)`: the engine's alternatives | a candidate CURIE, the engine's choice, or `none` |
+| `link` | two rows (two cohorts) or two KG nodes (many cohorts) that are linked but may differ | row pairs times cohorts touched | `get_review_item(ref)`: each side's node CURIE and name, its rows, certificate states, identifiers, and the basis | `same`, `different` or `cannot_tell` |
+
+- **Evidence is captured inside the job**, before the report is placed: one candidate re-map per
+  row item and the knowledge-graph name of each node in a link item, in impact order, up to 200
+  requests. So reading evidence afterwards makes no request and does not draw on the
+  15-per-5-minutes candidate budget. An item past the cap reads `not_captured` and a failed fetch
+  reads `fetch_failed`; neither means "no candidates", and `get_candidates` on such a row item
+  fetches it under the usual budget. The capture stage makes the job longer by about one request
+  per item.
+- **What is not a review item.** Multiplicity and broad groups, identifier-check "not confirmed"
+  rows, two-cohort `possible_missed` rows and one-sided code checks stay in the report files.
+  Many-cohort cross-node entries where one side has no node are counted (`skipped_no_node`) and
+  left in `cross_node_names_only.tsv`.
+- **Suggestions** go to `choices.tsv` in `output_dir`, the same server-owned sidecar as for
+  `map_file` (marker on line 1; a file without it is never touched). They are agent opinions:
+  nothing from them reaches the report.
+- **Names are untrusted text.** Cohort names and knowledge-graph names in these results are
+  stripped of control characters and capped; an agent must treat them as data.
+
+Deciding which items go to expert review, and exporting them for an Expert-in-the-Loop campaign,
+is the next phase and is not in this release.
 
 ### Reviewing weak results with your agent
 
@@ -805,7 +893,7 @@ No `refused` or `unresolved` rows were sampled, so their value is unmeasured.
 | `BIOMAPPER_KESTREL_URL` | `https://kestrel.krakenkg.com/api` | where the KG build is read for provenance |
 | `BIOMAPPER_API_KEY` | unset (keyless) | sent as `X-API-Key` when set; never written to job files, results, or logs |
 | `BIOMAPPER_MCP_ROOTS` | unset | extra folders `map_file` may use (`:`-separated; `;` on Windows) |
-| `BIOMAPPER_MCP_HOME` | `~/.cache/biomapper/mcp` | job state, weak-row refs and suggestions (owner-only permissions; interactive refs expire after 30 days) |
+| `BIOMAPPER_MCP_HOME` | `~/.cache/biomapper/mcp` | job state, weak-row refs, review items and suggestions (owner-only permissions; interactive refs expire after 30 days). A harmonize job's staging folder (while it runs) and its entity cache live here |
 
 On HPC or shared hosts whose home directory is on NFS/SMB, set `BIOMAPPER_MCP_HOME` to local disk:
 job ownership uses OS file locks, which network filesystems may not honor across machines.

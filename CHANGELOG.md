@@ -24,6 +24,42 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - **`MappingResult.max_annotator_score`** carries the previous value: the best score any annotator
   gave any node, whether or not the resolver committed it.
+- **Harmonization through the MCP server.** Two new tools, `harmonize_cohorts` and
+  `harmonize_many`, run the Python functions of the same names, unchanged, as resumable
+  background jobs on the server's one worker: submit, `job_status`, `resume_job`, `cancel_job`.
+  The function runs on a worker thread with a gated `BatchedApiMapper` subclass, so every request
+  goes through the one request gate and `harmonize_many` still reuses the saved-mapping store
+  under the 1.8.0 rules. Each answered entity is also cached in the job's home, so a two-cohort
+  job and a run on an unknown KG build resume without re-mapping. The report is built in a
+  private staging folder and placed into `output_dir` once, at the end: owner-only, never through
+  a link, never over an existing report. For the same per-entity answers the report files equal
+  a direct Python API call apart from the mapper class name and timestamps. Differences from the
+  Python API, by design: a failed chunk is retried (the Python mapper returns errored rows), a
+  job that ends with errored rows is `partial` and terminal, and a `remap_all` job that is
+  interrupted and resumed finishes `iteration-grade` with a note saying why. Hard caps are
+  checked before anything is created (12 cohorts, 20,000 rows and 50 MB per file, 3 unfinished
+  jobs).
+- **Review items for a finished harmonize job.** `list_review_items` pages through one typed
+  list, largest impact first: a row item per weak entity (asked once however many rows share the
+  name) and a link item per link a person should look at (two-cohort review links; many-cohort
+  cross-node entries with two real nodes). `get_review_item` returns a link's evidence with both
+  sides together. Candidates for row items and knowledge-graph names for link nodes are captured
+  inside the job, capped and in impact order, so reading them makes no request and does not use
+  the interactive candidate budget; `get_candidates` returns a captured set at once
+  (`captured_utc`). `record_suggestion` now also takes a link item with `same`, `different` or
+  `cannot_tell`, and writes harmonize suggestions to `choices.tsv` in the job's `output_dir`.
+- **`harmonize_cohorts(pins=...)`** records an already-taken pin block instead of probing, as
+  `harmonize_many` does. **`on_message=`** on both functions and on both reports' `write()` routes
+  their stdout messages to a callable (default: print), for callers that own stdout.
+
+### Changed (MCP)
+
+- `resume_job` and `cancel_job` are declared to return the fields every job shares
+  (`job_id`, `state`, `reason`); the values they return for a `map_file` job are unchanged.
+  `job_status` lists harmonize jobs under a new `harmonize_jobs` key, which is absent when there
+  are none, so a file-job listing serializes as before.
+- Candidate results sanitize `query_name` (control characters stripped, capped at 120
+  characters), like every other piece of untrusted text they carry.
 
 ## [1.8.0] - 2026-11-10
 

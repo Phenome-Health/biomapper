@@ -97,6 +97,71 @@ In this session every row read `confidence_tier = unknown`. The identifiers were
 no annotator ran and the engine produced no score. From 1.6.1 the server
 reports these rows as `not_scored`, so agents do not mistake them for weak matches.
 
+## Harmonizing cohorts and reading the review list (1.9.0)
+
+Not yet run live: the first live many-cohort run through Claude Code is the operator's check
+after review of the pull request that added these tools. The shapes below are from the offline
+test suite (`tests/mcp_server/test_review_entries.py`).
+
+**Agent → `harmonize_many`**
+
+```json
+{"cohorts": [
+   {"label": "c1", "path": "c1.tsv", "name_column": "name", "key_column": "key"},
+   {"label": "c2", "path": "c2.tsv", "name_column": "name", "key_column": "key"},
+   {"label": "c3", "path": "c3.tsv", "name_column": "name", "key_column": "key"}],
+ "entity": "metabolites"}
+```
+
+```json
+{"job_id": "5d0c1e7a9b3f2a44", "kind": "harmonize_many", "state": "queued", "stage": "queued",
+ "entities_total": 11, "entities_mapped": 0, "eta_s": 48.4,
+ "output_dir": "~/trial/harmonize_many_1f0a6c2b9d3e",
+ "store_dir": "~/trial/harmonize_many_store", …}
+```
+
+**Agent → `job_status`** `{"job_id": "5d0c1e7a9b3f2a44"}` (about once a minute)
+
+```json
+{"jobs": [], "note": null, "harmonize_jobs": [{"job_id": "5d0c1e7a9b3f2a44",
+  "state": "complete", "stage": "done", "entities_mapped": 11, "rows_errored": 0,
+  "summary": {"status": "ok", "publication_grade": "iteration-grade, not for publication",
+              "arms": {"names_only": {"groups": 9, "cross_node_entries": 3, …}}, …},
+  "review_items": {"row": 3, "link": 2, "skipped_no_node": 1,
+                   "candidates_captured": 3, "candidates_not_captured": 0}}]}
+```
+
+**Agent → `list_review_items`** `{"job_id": "5d0c1e7a9b3f2a44"}`
+
+```json
+{"total": 5, "counts": {"row": 3, "link": 2}, "skipped_no_node": 1, "next_offset": null,
+ "items": [
+  {"ref": "lref-5d0c1e7a9b3f2a44-…", "kind": "link", "impact": 12,
+   "label": "citric acid | citric acid", "reasons": ["name_exact"],
+   "nodes": ["CHEBI:30769", "CHEBI:999"], "cohorts": ["c1", "c2", "c3"],
+   "evidence": "names_captured", "suggestion": null},
+  {"ref": "jref-5d0c1e7a9b3f2a44-…", "kind": "row", "impact": 2, "label": "weakone",
+   "reasons": ["uncorroborated"], "engine_choice": "CHEBI:10", "cohorts": ["c1", "c2"],
+   "evidence": "present", "suggestion": null}, …]}
+```
+
+The first item is a name link across two nodes: the rows have the same name, so the label alone
+says nothing. **Agent → `get_review_item`** with that ref shows what differs:
+
+```json
+{"kind": "link", "link": {"link_kind": "cross_node", "bases": ["name_exact"], "n_row_pairs": 4,
+  "question": "These rows are linked by a shared identifier or name but resolved to two different knowledge-graph nodes. Are the two nodes the same entity?",
+  "a": {"node": "CHEBI:30769", "node_name": "citric acid", "node_name_status": "captured",
+        "rows": [{"cohort": "c1", "key": "c1-2", "name": "citric acid"}, …]},
+  "b": {"node": "CHEBI:999", "node_name": "isocitric acid", "node_name_status": "captured",
+        "rows": [{"cohort": "c2", "key": "c2-1", "name": "citric acid"}, …]}}, …}
+```
+
+**Agent → `record_suggestion`**
+`{"ref": "lref-…", "choice": "different", "rationale": "citrate vs isocitrate: isomers"}` writes
+the suggestion to `choices.tsv` in the output folder. It is the agent's view, and the agent
+should report it that way: it is not BioMapper's resolution and not a person's decision.
+
 ## Live trial results (Claude Code, 2026-11-04)
 
 Scored by counting tool calls in the session transcripts, not from the agent's own account.

@@ -69,9 +69,14 @@ logger = logging.getLogger("biomapper.mcp.jobs")
 JobState = Literal[
     "queued", "running", "paused", "stalled", "expired", "cancelled", "complete", "failed",
     "owned_elsewhere",
+    # 1.9.0, harmonize jobs only: finished and placed its report, but some rows errored.
+    "partial",
 ]
 UNFINISHED = frozenset({"queued", "running", "stalled"})
 RESUMABLE = frozenset({"stalled", "expired", "paused", "cancelled"})
+TERMINAL = frozenset({"complete", "failed", "cancelled", "partial"})
+HARMONIZE_KINDS = ("harmonize_cohorts", "harmonize_many")
+HarmonizeStage = Literal["queued", "mapping", "building", "capture", "placing", "done"]
 
 OUTPUT_COLUMNS = [
     "key", "name", "identifiers_sent", "status", "chosen_kg_id", "primary_curie", "resolved",
@@ -99,18 +104,23 @@ JOB_TOOL_DESCRIPTIONS = {
         "job; rerun=true starts over with a fresh cache. Poll job_status about once a minute."
     ),
     "job_status": (
-        "Status of one map_file job (job_id) or of all jobs in the current folders: state "
+        "Status of one background job (job_id) or of all jobs in the current folders: state "
         "(queued, running, paused, stalled, expired, cancelled, complete, failed, "
-        "owned_elsewhere), progress, ETA estimate, output path, and whether the KG build is "
-        "verified. Makes no request to BioMapper."
+        "owned_elsewhere; harmonize jobs also partial), progress, ETA estimate, output path, and "
+        "whether the KG build is verified. map_file jobs are listed under jobs; harmonize_cohorts "
+        "and harmonize_many jobs under harmonize_jobs, with their stage (mapping, building, "
+        "capture, placing) and, once finished, a compact summary and the review item counts. "
+        "Makes no request to BioMapper."
     ),
     "resume_job": (
-        "Resume a stalled, expired, paused, or cancelled job after a fresh health check. Rows "
-        "already mapped are not re-mapped."
+        "Resume a stalled, expired, paused, or cancelled job (map_file or harmonize) after a "
+        "fresh health check. Entities already mapped are not re-mapped. A harmonize_many job "
+        "submitted with remap_all=true and then resumed finishes as iteration-grade, because a "
+        "publishable run needs one uninterrupted pass."
     ),
     "cancel_job": (
-        "Cancel a job. It stops after the current chunk; the partial output and cache are kept, "
-        "so resume_job can continue it later."
+        "Cancel a job (map_file or harmonize). It stops after the current chunk; what was "
+        "mapped is kept, so resume_job can continue it later."
     ),
 }
 
@@ -124,10 +134,19 @@ class JobOwner(BaseModel):
     pid: int | None = None
 
 
-class JobStatus(BaseModel):
+class JobStatusBase(BaseModel):
+    """What every background job reports, whatever its kind.
+
+    ``resume_job`` and ``cancel_job`` are declared to return this and hand back the job's own
+    status model (:class:`JobStatus` or :class:`HarmonizeStatus`) with all of its fields.
+    """
+
     job_id: str
     state: JobState
     reason: str | None = None
+
+
+class JobStatus(JobStatusBase):
     input_path: str
     output_path: str
     partial_path: str
@@ -145,9 +164,66 @@ class JobStatus(BaseModel):
     updated_utc: str
 
 
+class CohortStatus(BaseModel):
+    label: str
+    path: str
+    rows: int
+
+
+class ReviewCounts(BaseModel):
+    """Review items of one harmonize job, by kind. See list_review_items."""
+
+    row: int = 0
+    link: int = 0
+    skipped_no_node: int = Field(
+        default=0,
+        description="Many-cohort cross-node entries with a side that has no node; left in the "
+        "report files, not review items",
+    )
+    candidates_captured: int = 0
+    candidates_not_captured: int = 0
+
+
+class HarmonizeStatus(JobStatusBase):
+    """Status of a harmonize_cohorts / harmonize_many job (1.9.0)."""
+
+    kind: Literal["harmonize_cohorts", "harmonize_many"]
+    stage: HarmonizeStage = Field(
+        description="mapping, then building (review items), capture (candidates and node names "
+        "for review items), placing (report into output_dir), done"
+    )
+    cohorts: list[CohortStatus]
+    entity: str
+    output_dir: str = Field(description="Written once, at the end; never overwritten")
+    store_dir: str | None = Field(
+        default=None, description="The saved-mapping store (harmonize_many only)"
+    )
+    entities_total: int = Field(description="Unique names across the cohorts")
+    entities_mapped: int = Field(description="Entities this job has sent to BioMapper so far")
+    rows_errored: int = 0
+    eta_s: float | None = Field(default=None, description="Best-effort estimate, not a promise")
+    kg_build: str = UNKNOWN
+    kg_verified: bool = False
+    owner: JobOwner | None = None
+    created_utc: str
+    updated_utc: str
+    summary: dict[str, Any] | None = Field(
+        default=None,
+        description="Once finished: counts per arm, the publication grade (harmonize_many "
+        "only), warnings. The full report is in output_dir.",
+    )
+    review_items: ReviewCounts | None = None
+
+
 class JobStatusList(BaseModel):
     jobs: list[JobStatus]
     note: str | None = None
+    # 1.9.0. Absent when there are none, so a file-job listing serializes as it did in 1.8.0.
+    harmonize_jobs: list[HarmonizeStatus] = Field(
+        default_factory=list,
+        exclude_if=lambda v: not v,
+        description="harmonize_cohorts / harmonize_many jobs",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -213,9 +289,9 @@ def _resolved_under(path: Path, roots: list[Path]) -> bool:
     return _under(resolved, roots)
 
 
-def _create_exclusive(path: Path) -> IO[str]:
+def _create_exclusive(path: Path, mode: int = 0o644) -> IO[str]:
     """Open a new file for writing; refuses an existing name, including a symlink."""
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | _NOFOLLOW, 0o644)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | _NOFOLLOW, mode)
     return os.fdopen(fd, "w", encoding="utf-8", newline="")
 
 
@@ -379,6 +455,82 @@ class Job:
         return cls(**known)
 
 
+@dataclass
+class HarmonizeJob:
+    """The persisted record of a harmonize job (``job.json`` with a ``kind``).
+
+    It shares the jobs directory, the id format, ``owner.lock`` and the single worker with file
+    jobs. Nothing of it is written outside the job's home until the run, the review items and
+    the candidate capture are complete; then the report is placed into ``output_dir`` once.
+    """
+
+    job_id: str
+    kind: str
+    # Each: label, path, sha256, rows, name_column, key_column, vocabularies.
+    cohorts: list[dict[str, Any]]
+    entity: str
+    category: str | None
+    output_dir: str
+    store_dir: str | None
+    options: dict[str, Any]
+    state: str = "queued"
+    stage: str = "queued"
+    reason: str | None = None
+    entities_total: int = 0
+    entities_mapped: int = 0
+    rows_errored: int = 0
+    seconds_per_entity: float = 4.4
+    # How many times the mapping thread was started. More than one means the run was interrupted.
+    runs_started: int = 0
+    pin: dict[str, Any] | None = None
+    pin_session: str | None = None
+    kg_build: str = UNKNOWN
+    kg_verified: bool = False
+    created_utc: str = ""
+    updated_utc: str = ""
+    completed_utc: str | None = None
+    # name -> sha256 of every report file this job is placing, recorded BEFORE the first one is
+    # placed, so a resume after an interrupted placement can tell its own files from a user's.
+    placed: dict[str, str] = field(default_factory=dict)
+    summary: dict[str, Any] | None = None
+    review: dict[str, int] | None = None
+
+    @property
+    def output(self) -> Path:
+        return Path(self.output_dir)
+
+    @property
+    def choices_path(self) -> Path:
+        """Agent suggestions. Server-owned, regenerated by record_suggestion."""
+        return self.output / "choices.tsv"
+
+    def paths(self) -> list[Path]:
+        """Every path the job reads or writes outside its home."""
+        out = [Path(c["path"]) for c in self.cohorts]
+        out.append(self.output)
+        if self.store_dir is not None:
+            out.append(Path(self.store_dir))
+        if self.output.is_dir():
+            out.append(self.choices_path)
+        return out
+
+    def to_json(self) -> str:
+        return json.dumps(self.__dict__, indent=2, sort_keys=True)
+
+
+AnyJob = Job | HarmonizeJob
+
+
+def read_record(path: Path) -> AnyJob:
+    """Load ``job.json`` as the record its ``kind`` names (no ``kind`` is a file job)."""
+    data = json.loads(path.read_text())
+    cls: type[Job] | type[HarmonizeJob] = (
+        HarmonizeJob if data.get("kind") in HARMONIZE_KINDS else Job
+    )
+    known = {k: v for k, v in data.items() if k in cls.__dataclass_fields__}
+    return cls(**known)
+
+
 def _job_id(input_sha: str, options: dict[str, Any], output_path: str) -> str:
     blob = json.dumps(
         {"input_sha256": input_sha, "options": options, "output_path": output_path},
@@ -502,7 +654,7 @@ class JobManager:
         self.session_id = uuid.uuid4().hex
         self.jobs_dir = config.home / "jobs"
         self._locks: dict[str, JobLock] = {}
-        self._jobs: dict[str, Job] = {}
+        self._jobs: dict[str, AnyJob] = {}
         self._queue: asyncio.Queue[str] = asyncio.Queue()
         self._queued: set[str] = set()
         self._needs_health: set[str] = set()
@@ -510,6 +662,10 @@ class JobManager:
         self._last_good_chunk: float | None = None
         self._busy_job: str | None = None
         self._run_roots: dict[str, list[Path]] = {}
+        self.shutting_down = False
+        from biomapper.mcp.harmonize_jobs import HarmonizeRunner  # imports this module
+
+        self.harmonize = HarmonizeRunner(self)
 
     # -- roots ---------------------------------------------------------
 
@@ -524,11 +680,11 @@ class JobManager:
                 roots.append(resolved)
         return roots
 
-    def _require_roots(self, client_roots: list[Path]) -> list[Path]:
+    def _require_roots(self, client_roots: list[Path], tool: str = "map_file") -> list[Path]:
         roots = self.allowed_roots(client_roots)
         if not roots:
             raise JobError(
-                "map_file can only read and write inside allowed folders, and none are set. "
+                f"{tool} can only read and write inside allowed folders, and none are set. "
                 "This client did not share any workspace roots. Set BIOMAPPER_MCP_ROOTS to the "
                 "folder(s) holding your data (separate several with "
                 f"'{os.pathsep}') in the MCP server's env and restart it. The map_entity and "
@@ -541,11 +697,11 @@ class JobManager:
     def _dir(self, job_id: str) -> Path:
         return self.jobs_dir / job_id
 
-    def _save(self, job: Job) -> None:
+    def _save(self, job: AnyJob) -> None:
         job.updated_utc = _utc(self.config.wall_clock())
         _write_private(self._dir(job.job_id) / JOB_FILE, job.to_json())
 
-    def _load(self, job_id: str) -> Job | None:
+    def _load(self, job_id: str) -> AnyJob | None:
         if not _valid_job_id(job_id):
             return None
         if job_id in self._jobs:
@@ -554,13 +710,13 @@ class JobManager:
         if not path.is_file():
             return None
         try:
-            job = Job.load(path)
+            job = read_record(path)
         except (OSError, ValueError, TypeError):
             logger.warning("unreadable job record %s", path)
             return None
         return job if job.job_id == job_id else None
 
-    def _require_job(self, job_id: str) -> Job:
+    def _require_job(self, job_id: str) -> AnyJob:
         if not _valid_job_id(job_id):
             raise JobError(
                 f"{job_id!r} is not a job ID; job IDs are 16 lowercase hex characters, as "
@@ -580,10 +736,12 @@ class JobManager:
         )
 
     @staticmethod
-    def _within(job: Job, roots: list[Path]) -> bool:
+    def _within(job: AnyJob, roots: list[Path]) -> bool:
         """Every path the job reads or writes is, re-resolved now, inside ``roots``."""
         if not roots:
             return False
+        if isinstance(job, HarmonizeJob):
+            return all(_resolved_under(p, roots) for p in job.paths())
         return all(
             _resolved_under(p, roots)
             for p in (
@@ -592,7 +750,7 @@ class JobManager:
             )
         )
 
-    def _take(self, job: Job) -> bool:
+    def _take(self, job: AnyJob) -> bool:
         """Acquire ownership of ``job``. True if this process now owns it."""
         if job.job_id in self._locks:
             return True
@@ -604,23 +762,32 @@ class JobManager:
         self._jobs[job.job_id] = fresh
         return True
 
-    def _load_from_disk(self, job_id: str) -> Job | None:
+    def _load_from_disk(self, job_id: str) -> AnyJob | None:
         if not _valid_job_id(job_id):
             return None
         path = self._dir(job_id) / JOB_FILE
         try:
-            job = Job.load(path)
+            job = read_record(path)
         except (OSError, ValueError, TypeError):
             return None
         return job if job.job_id == job_id else None
 
-    def _enqueue(self, job: Job, *, health: bool, roots: list[Path]) -> None:
+    def _enqueue(self, job: AnyJob, *, health: bool, roots: list[Path]) -> None:
         self._run_roots[job.job_id] = list(roots)
         if health:
             self._needs_health.add(job.job_id)
         if job.job_id not in self._queued:
             self._queued.add(job.job_id)
             self._queue.put_nowait(job.job_id)
+
+    def begin_shutdown(self) -> None:
+        """Tell a running harmonize thread to stop at its next chunk boundary.
+
+        The lifespan calls this before it cancels the task group and :meth:`close` after the
+        group has exited, so the job locks are released only once the worker thread is gone and
+        cannot still hold a saved-mapping store's lock.
+        """
+        self.shutting_down = True
 
     def close(self) -> None:
         for lock in self._locks.values():
@@ -635,7 +802,8 @@ class JobManager:
         remaining = max(job.entities_total - job.entities_done - job.entities_failed, 0)
         return round(remaining * job.seconds_per_entity, 1)
 
-    def _status(self, job: Job) -> JobStatus:
+    def _live_state(self, job: AnyJob) -> tuple[str, JobOwner | None]:
+        """The state to report: a job no live process owns reads paused, another's reads so."""
         state: str = job.state
         owner: JobOwner | None = None
         if job.job_id not in self._locks and state in UNFINISHED | {"expired", "cancelled"}:
@@ -647,6 +815,15 @@ class JobManager:
             else:
                 state = "owned_elsewhere"
                 owner = lock.owner()
+        return state, owner
+
+    def _status_any(self, job: AnyJob) -> JobStatus | HarmonizeStatus:
+        if isinstance(job, HarmonizeJob):
+            return self.harmonize.status(job)
+        return self._status(job)
+
+    def _status(self, job: Job) -> JobStatus:
+        state, owner = self._live_state(job)
         return JobStatus(
             job_id=job.job_id,
             state=state,  # type: ignore[arg-type]
@@ -678,12 +855,20 @@ class JobManager:
                     f"Job {job_id!r} reads or writes files outside the folders allowed in this "
                     "session."
                 )
-            return JobStatusList(jobs=[self._status(job)])
+            return self._listing([job], None)
         jobs = [j for j in (self._load(i) for i in self._all_job_ids()) if j is not None]
         visible = [j for j in jobs if self._within(j, roots)]
         visible.sort(key=lambda j: j.created_utc)
         note = None if roots else "No allowed folders in this session, so no jobs are listed."
-        return JobStatusList(jobs=[self._status(j) for j in visible], note=note)
+        return self._listing(visible, note)
+
+    def _listing(self, jobs: list[AnyJob], note: str | None) -> JobStatusList:
+        return JobStatusList(
+            jobs=[self._status(j) for j in jobs if isinstance(j, Job)],
+            note=note,
+            harmonize_jobs=[self.harmonize.status(j) for j in jobs
+                            if isinstance(j, HarmonizeJob)],
+        )
 
     # -- validation ----------------------------------------------------
 
@@ -797,15 +982,19 @@ class JobManager:
         sha = await anyio.to_thread.run_sync(_sha256, source)
         job_id = _job_id(sha, options, str(target))
 
-        existing = self._load(job_id)
+        found = self._load(job_id)
+        existing = found if isinstance(found, Job) else None
+        if found is not None and existing is None:  # pragma: no cover - a 64-bit id collision
+            raise JobError(f"Job id {job_id} is taken by a harmonize job.")
         if existing is not None and not rerun:
             status = self._status(existing)
             if status.state == "paused" and self._take(existing):
-                job = self._jobs[job_id]
-                job.state = "queued"
-                self._save(job)
-                self._enqueue(job, health=True, roots=roots)
-                return self._status(job)
+                requeued = self._jobs[job_id]
+                assert isinstance(requeued, Job)
+                requeued.state = "queued"
+                self._save(requeued)
+                self._enqueue(requeued, health=True, roots=roots)
+                return self._status(requeued)
             return status
         if existing is not None and rerun:
             if self._status(existing).state == "owned_elsewhere":
@@ -876,26 +1065,36 @@ class JobManager:
             lock.release()
         self._jobs.pop(job_id, None)
 
-    async def resume(self, job_id: str, *, client_roots: list[Path]) -> JobStatus:
-        roots = self._require_roots(client_roots)
+    async def resume(
+        self, job_id: str, *, client_roots: list[Path]
+    ) -> JobStatus | HarmonizeStatus:
+        roots = self._require_roots(client_roots, "resume_job")
         await self._note_roots(roots)
         job = self._require_job(job_id)
         if not self._within(job, roots):
             raise JobError(f"Job {job_id!r} reads or writes files outside the allowed folders.")
-        status = self._status(job)
-        if status.state == "owned_elsewhere":
-            pid = status.owner.pid if status.owner else None
+        state, owner = self._live_state(job)
+        if state == "owned_elsewhere":
+            pid = owner.pid if owner else None
             raise JobError(
                 f"Job {job_id} is owned by another session (pid {pid}). It continues there; "
                 "resume it here only after that session ends."
             )
-        if status.state in ("queued", "running", "complete"):
-            return status
-        if status.state == "failed":
+        if state in ("queued", "running", "complete"):
+            return self._status_any(job)
+        harmonize = isinstance(job, HarmonizeJob)
+        if state == "partial":
             raise JobError(
-                f"Job {job_id} failed ({job.reason}). Submit map_file again with rerun=true to "
-                f"start it over."
+                f"Job {job_id} is partial: it finished and wrote its report, but some rows "
+                "errored. A partial job is not resumed. Submit it again with a new output_dir; "
+                "a harmonize_many resubmission reuses the saved mappings, so only the errored "
+                "rows are mapped."
             )
+        if state == "failed":
+            how = ("Submit the same harmonize call again to retry it (nothing was written to "
+                   "its output_dir)." if harmonize
+                   else "Submit map_file again with rerun=true to start it over.")
+            raise JobError(f"Job {job_id} failed ({job.reason}). {how}")
         if not self._take(job):
             raise JobError(f"Job {job_id} is owned by another session.")
         job = self._jobs[job_id]
@@ -905,9 +1104,11 @@ class JobManager:
         job.state = "queued"
         self._save(job)
         self._enqueue(job, health=False, roots=roots)
-        return self._status(job)
+        return self._status_any(job)
 
-    async def cancel(self, job_id: str, *, client_roots: list[Path]) -> JobStatus:
+    async def cancel(
+        self, job_id: str, *, client_roots: list[Path]
+    ) -> JobStatus | HarmonizeStatus:
         roots = self.allowed_roots(client_roots)
         await self._note_roots(roots)
         job = self._require_job(job_id)
@@ -916,15 +1117,19 @@ class JobManager:
                 f"Job {job_id!r} reads or writes files outside the folders allowed in this "
                 "session."
             )
-        if job.state in ("complete", "failed", "cancelled"):
-            return self._status(job)
+        if job.state in TERMINAL:
+            return self._status_any(job)
         if not self._take(job):
             raise JobError(f"Job {job_id} is owned by another session; cancel it there.")
         job = self._jobs[job_id]
         job.state = "cancelled"
-        job.reason = "Cancelled; partial output and cache kept. resume_job continues it."
+        job.reason = (
+            "Cancelled; the entities mapped so far are kept. resume_job continues it."
+            if isinstance(job, HarmonizeJob)
+            else "Cancelled; partial output and cache kept. resume_job continues it."
+        )
         self._save(job)
-        return self._status(job)
+        return self._status_any(job)
 
     # -- auto-resume ---------------------------------------------------
 
@@ -975,7 +1180,10 @@ class JobManager:
                 continue
             self._busy_job = job_id
             try:
-                await self._run(job)
+                if isinstance(job, HarmonizeJob):
+                    await self.harmonize.run(job)
+                else:
+                    await self._run(job)
             except _Stop:
                 pass
             except JobError as exc:
@@ -986,7 +1194,7 @@ class JobManager:
             finally:
                 self._busy_job = None
 
-    def _finish(self, job: Job, state: str, reason: str | None) -> NoReturn:
+    def _finish(self, job: AnyJob, state: str, reason: str | None) -> NoReturn:
         if job.state == "cancelled":
             raise _Stop  # a cancel that landed mid-chunk wins over whatever the chunk decided
         job.state = state
@@ -994,7 +1202,7 @@ class JobManager:
         self._save(job)
         raise _Stop
 
-    def _fail_quietly(self, job: Job, reason: str) -> None:
+    def _fail_quietly(self, job: AnyJob, reason: str) -> None:
         """Record a failure from the worker's own handler; nothing may escape the worker."""
         try:
             self._finish(job, "failed", reason)
@@ -1003,7 +1211,7 @@ class JobManager:
         except Exception:  # noqa: BLE001 — e.g. the job record could not be saved
             logger.exception("could not record failure of job %s", job.job_id)
 
-    def _require_within_roots(self, job: Job) -> None:
+    def _require_within_roots(self, job: AnyJob) -> None:
         roots = self._run_roots.get(job.job_id, [])
         if not self._within(job, roots):
             self._finish(
@@ -1012,7 +1220,7 @@ class JobManager:
                 "session (a folder moved, or a path became a link elsewhere). Nothing was written.",
             )
 
-    def _stop_if_cancelled(self, job: Job) -> None:
+    def _stop_if_cancelled(self, job: AnyJob) -> None:
         if job.state == "cancelled":
             raise _Stop
 
@@ -1292,7 +1500,7 @@ class JobManager:
         except (OSError, UnicodeDecodeError):
             return False
 
-    def check_choices_writable(self, job: Job) -> None:
+    def check_choices_writable(self, job: AnyJob) -> None:
         """Refuse unless ``choices.tsv`` is absent or a server-owned file (marker on line 1)."""
         path = job.choices_path
         if path.is_symlink():
@@ -1305,12 +1513,13 @@ class JobManager:
                 "Move it away, then record the suggestion again."
             )
 
-    def write_choices(self, job: Job, rows: list[list[Any]]) -> Path:
+    def write_choices(self, job: AnyJob, rows: list[list[Any]]) -> Path:
         """Atomically replace the job's ``choices.tsv`` with ``rows`` under the marker line."""
         self.check_choices_writable(job)
         path = job.choices_path
         tmp = path.with_name(f".{path.name}.{uuid.uuid4().hex[:8]}.tmp")
-        with _create_exclusive(tmp) as fh:
+        # A harmonize job's files are owner-only; map_file's sidecars keep their 1.7.0 mode.
+        with _create_exclusive(tmp, 0o600 if isinstance(job, HarmonizeJob) else 0o644) as fh:
             fh.write(CHOICES_MARKER + "\n")
             fh.write(_tsv_line(CHOICES_COLUMNS))
             for row in rows:

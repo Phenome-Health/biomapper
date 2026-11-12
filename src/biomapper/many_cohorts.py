@@ -41,7 +41,7 @@ import types
 import uuid
 import warnings
 from collections import Counter
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from contextlib import ExitStack
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -273,12 +273,19 @@ class ManyCohortReport:
 
     # -- writing ---------------------------------------------------------
 
-    def write(self, path: str | os.PathLike[str] | None = None) -> Path:
+    def write(
+        self,
+        path: str | os.PathLike[str] | None = None,
+        *,
+        on_message: Callable[[str], None] | None = None,
+    ) -> Path:
         """Write every table and the summary; return the directory.
 
         ``path`` defaults to this report's ``output_dir``, or a new
         ``biomapper_runs/harmonize_many_<UTC timestamp>/`` under the current directory.
+        ``on_message`` receives the messages instead of stdout (see :func:`harmonize_many`).
         """
+        say = on_message or print
         if path is not None:
             directory = Path(path).resolve()
         elif self.output_dir is not None:
@@ -302,9 +309,9 @@ class ManyCohortReport:
         _write_json(directory / "settings.json", {**self.settings, "pins": self.pins})
         _write_json(directory / "summary.json", self.summary())
         self.output_dir = directory
-        print(f"harmonize_many: wrote results to {directory}")
+        say(f"harmonize_many: wrote results to {directory}")
         if self._store_root is not None:
-            print(f"harmonize_many: saved mappings in {self._store_root}")
+            say(f"harmonize_many: saved mappings in {self._store_root}")
         return directory
 
 
@@ -519,6 +526,7 @@ def harmonize_many(
     output_dir: str | os.PathLike[str] | None = None,
     save: bool = True,
     remap_all: bool = False,
+    on_message: Callable[[str], None] | None = None,
 ) -> ManyCohortReport:
     """Harmonize two or more cohort tables, grouping rows across all of them by chosen node.
 
@@ -552,6 +560,10 @@ def harmonize_many(
         save: Write results (default True).
         remap_all: Map every entity again on the current build instead of reusing saved mappings
             (the old ones are kept aside). Use it for numbers you will publish.
+        on_message: A callable that receives the messages this function would print to stdout
+            (the run directory, the store, the "wrote results" lines). Default: print them. A
+            caller that owns stdout, such as the MCP server's stdio transport, passes one.
+            Progress lines (``progress=True``) and warnings go to stderr and are not routed.
 
     Returns:
         A :class:`ManyCohortReport`.
@@ -636,9 +648,10 @@ def harmonize_many(
                 else _new_run_dir(Path(DEFAULT_RUNS_DIR).resolve(), RUN_PREFIX)
             )
             directory.mkdir(parents=True, exist_ok=True)
-            print(f"harmonize_many: run directory {directory}")
+            tell = on_message or print
+            tell(f"harmonize_many: run directory {directory}")
             if store.saving and store.root is not None:
-                print(f"harmonize_many: saved-mapping store {store.root}")
+                tell(f"harmonize_many: saved-mapping store {store.root}")
 
         mapping: dict[str, dict[str, dict[str, Any]]] = {}
 
@@ -806,6 +819,6 @@ def harmonize_many(
             _store_root=store.root if store.saving else None,
         )
         if directory is not None:
-            report.write(directory)
+            report.write(directory, on_message=on_message)
         return report
 
