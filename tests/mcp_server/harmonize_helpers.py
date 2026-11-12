@@ -111,6 +111,9 @@ class Scripted:
         self.reorder = False
         self.candidate_requests: list[str] = []
         self.kg_names: dict[str, str] = {}
+        self.candidate_fail: set[str] = set()  # names whose candidate re-map answers 500
+        self.candidate_table: dict[str, dict] = {}  # a different answer on the re-map (drift)
+        self.candidate_delay = 0.0
 
     @property
     def sent_names(self) -> list[str]:
@@ -120,7 +123,7 @@ class Scripted:
     def entry(self, name: str, *, top_n: int | None = None) -> dict[str, Any]:
         if name in self.error_names:
             return {"name": name, "curies": [], "error": "annotator exploded for this row"}
-        spec = self.table.get(name)
+        spec = (self.candidate_table.get(name) if top_n else None) or self.table.get(name)
         if spec is None:
             spec = node(f"TEST:{zlib.crc32(name.encode())}")
         kestrel = None
@@ -141,6 +144,10 @@ class Scripted:
             self.fail_next -= 1
             return httpx.Response(500, json={"detail": "boom"})
         entities = json.loads(request.content)["entities"]
+        if any((e.get("options") or {}).get("kestrel_top_n") for e in entities):
+            await asyncio.sleep(self.candidate_delay)
+            if any(e["name"] in self.candidate_fail for e in entities):
+                return httpx.Response(500, json={"detail": "candidate search down"})
         entries = [self.entry(e["name"], top_n=(e.get("options") or {}).get("kestrel_top_n"))
                    for e in entities]
         if self.reorder and len(entries) > 1:

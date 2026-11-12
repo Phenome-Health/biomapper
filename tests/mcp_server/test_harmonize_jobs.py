@@ -688,3 +688,54 @@ async def test_a_bridge_call_over_its_timeout_fails_the_job_and_releases_the_gat
         ok = await client.call_tool("map_entity", {"name": "x", "entity_type": ST})
         assert not ok.is_error, "the gate must be free again"
     assert lock_files(data) == []
+
+
+# ---------------------------------------------------------------------------
+# An interrupted placement
+# ---------------------------------------------------------------------------
+
+
+def _rewind_to_interrupted_placement(config, job_id: str, out: Path, keep: int) -> list[str]:
+    """Make a finished job look as if the server died after placing ``keep`` report files."""
+    record_path = job_dir(config, job_id) / "job.json"
+    record = json.loads(record_path.read_text())
+    record.update(state="running", stage="placing", summary=None, completed_utc=None)
+    record_path.write_text(json.dumps(record))
+    names = sorted(record["placed"])
+    for name in names[keep:]:
+        (out / name).unlink()
+    return names
+
+
+async def test_a_placement_interrupted_midway_recovers_on_restart(router, tmp_path, data) -> None:
+    scripted = Scripted().mount(router)
+    config = cfg(tmp_path, data)
+    async with Client(build_server(config)) as client:
+        job = await submit_many(client, three(data))
+        done = await wait_h(client, job["job_id"], "complete")
+    out = Path(done["output_dir"])
+    names = _rewind_to_interrupted_placement(config, job["job_id"], out, keep=3)
+    sent = len(scripted.sent_names)
+    async with Client(build_server(config)) as client:
+        again = await wait_h(client, job["job_id"], "complete")
+    assert sorted(p.name for p in out.iterdir()) == names
+    assert len(scripted.sent_names) == sent, "recovery maps nothing: the job cache has it all"
+    assert again["summary"]["status"] == "ok"
+
+
+async def test_a_file_replaced_during_an_interrupted_placement_is_not_overwritten(
+    router, tmp_path, data
+) -> None:
+    Scripted().mount(router)
+    config = cfg(tmp_path, data)
+    async with Client(build_server(config)) as client:
+        job = await submit_many(client, three(data))
+        done = await wait_h(client, job["job_id"], "complete")
+    out = Path(done["output_dir"])
+    names = _rewind_to_interrupted_placement(config, job["job_id"], out, keep=3)
+    (out / names[0]).write_text("the researcher's own edit")
+    async with Client(build_server(config)) as client:
+        failed = await wait_h(client, job["job_id"], "failed")
+    assert "not overwritten" in failed["reason"]
+    assert (out / names[0]).read_text() == "the researcher's own edit"
+    assert sorted(p.name for p in out.iterdir()) == names[:3], "and nothing else was placed"

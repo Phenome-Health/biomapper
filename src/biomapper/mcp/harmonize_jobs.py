@@ -490,6 +490,9 @@ class HarmonizeRunner:
             except BioMapperAuthError as exc:
                 raise _Fatal(tools.explain_client_error(exc)) from None
             elapsed = cfg.monotonic() - started
+            for warned in caught:  # recorded, not shown: pass the others on to the log
+                if "Batch order mismatch" not in str(warned.message):
+                    logger.warning("%s: %s", warned.category.__name__, warned.message)
             if any("Batch order mismatch" in str(w.message) for w in caught):
                 raise _Fatal(
                     "BioMapper returned a batch out of request order, so its results cannot be "
