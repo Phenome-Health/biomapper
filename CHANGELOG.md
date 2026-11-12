@@ -15,7 +15,10 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   A row whose chosen node no annotator scored, or that has no chosen node, reports `None` and
   `confidence_tier == "unknown"` (`not_scored` in the MCP server) where it could previously report
   another node's tier. The MCP `confidence_score` / `confidence_tier` fields and the benchmark
-  mapper's `confidence_score` column follow.
+  mapper's `confidence_score` column follow. Results cached by an earlier client (resumable MCP
+  jobs, `harmonize_many` stores, benchmark arm caches) hold no raw response to recompute from, so
+  on load their stored score moves to `max_annotator_score` and their `confidence_score` reads
+  `None` rather than being reused under the new meaning; re-map to get the chosen node's score.
 
 ### Added
 
