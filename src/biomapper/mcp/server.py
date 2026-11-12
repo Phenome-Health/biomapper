@@ -875,9 +875,13 @@ def _refresh_review_entry(state: AppState, record: RefRecord, out: cands.RefCand
     if not isinstance(job, HarmonizeJob) or job.state not in FINISHED:
         return
     try:
-        rev.EntryStore(state.config.home).refresh(
+        counts = rev.EntryStore(state.config.home).refresh(
             job.job_id, record.ref_id, out.status, out.reason, out.superseding_ref
         )
+        # job_status reports the counts kept on the job record: keep them in step with the list.
+        if counts is not None and counts != job.review:
+            job.review = counts
+            state.jobs._save(job)
     except OSError:
         logger.warning("could not update the review item of %s", record.ref_id, exc_info=True)
 

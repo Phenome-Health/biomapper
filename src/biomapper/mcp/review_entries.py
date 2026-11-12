@@ -203,25 +203,27 @@ class EntryStore:
         write_private(path, index.model_dump_json(indent=1))
 
     def refresh(self, job_id: str, ref: str, status: str, reason: str | None,
-                superseding_ref: str | None) -> None:
+                superseding_ref: str | None) -> dict[str, int] | None:
         """Bring a row entry in line with a later ``get_candidates`` fetch on its reference.
 
         Without this the list keeps showing what the capture stage saw (a ``fetch_failed`` that
         a retry has since repaired), and a reference issued by a later run mismatch is unknown
         to ``get_review_item``. Only for a finished job: the capture stage owns the index of a
-        running one.
+        running one. Returns the index's counts after the change (``None`` when nothing changed),
+        so the caller can keep the job record's copy of them in step.
         """
         index = self.load(job_id)
         if index is None:
-            return
+            return None
         entry = next((e for e in index.entries
                       if e.kind == "row" and ref in (e.ref, e.superseding_ref)), None)
         if entry is None:
-            return
+            return None
         entry.candidates_status, entry.candidates_reason = status, reason
         if superseding_ref:
             entry.superseding_ref = superseding_ref
         self.save(index)
+        return index.counts()
 
 
 def discard(jdir: Path) -> None:
@@ -766,8 +768,13 @@ async def _capture(
         return budget <= 0 or failures >= CAPTURE_HALT_AFTER
 
     def charge() -> None:
-        """Count one request BEFORE it is sent, so an interrupted one is still counted."""
+        """Count one request BEFORE it is sent, so an interrupted one is still counted.
+
+        A request that will not be sent at all (``_fetch`` stops first) is not counted.
+        """
         nonlocal budget
+        if job.state == "cancelled" or m.shutting_down:
+            raise _Stop
         budget -= 1
         index.capture_requests += 1
         store.save(index)
