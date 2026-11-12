@@ -65,6 +65,39 @@ DISCOVERY_DESCRIPTIONS = {
 }
 
 
+HARMONIZE_DESCRIPTIONS = {
+    "harmonize_cohorts": (
+        "Harmonize TWO cohort files (which rows in A and B measure the same thing) as a "
+        "resumable BACKGROUND job; returns immediately with a job_id. Runs the Python API's "
+        "harmonize_cohorts() unchanged: a names-only arm, an identifier arm for vocabularies "
+        "both cohorts declare, and a check of one-sided codes. a and b each give label, path, "
+        "name_column, optional key_column and optional vocabularies ({vocabulary: [columns]}). "
+        "entity is metabolites, proteins, genes, labs or a biolink: category. Only the entity "
+        "NAMES in name_column, and the identifiers in declared vocabulary columns, are sent to "
+        "the BioMapper API; nothing else from the files leaves this machine. About 4-5 s per "
+        "unique name, one job at a time. The report is written once, at the end, into "
+        "output_dir (default: a new folder beside the first file), never over an existing "
+        "report. Poll job_status about once a minute; then list_review_items."
+    ),
+    "harmonize_many": (
+        "Harmonize TWO OR MORE cohort files in one pinned run, as a resumable BACKGROUND job; "
+        "returns immediately with a job_id. Runs the Python API's harmonize_many() unchanged: "
+        "rows are grouped across all cohorts by the knowledge-graph node they resolve to, and "
+        "saved mappings are reused from store_dir (default: harmonize_many_store beside "
+        "output_dir), so a second run maps only new names. cohorts is a list of {label, path, "
+        "name_column, key_column?, vocabularies?}. Only the entity NAMES in name_column, and "
+        "the identifiers in vocabulary columns every cohort declares, are sent to the "
+        "BioMapper API; nothing else from the files leaves this machine. About 4-5 s per new "
+        "unique name, one job at a time, so a large run takes hours and file jobs queue behind "
+        "it. remap_all=true maps everything again for a publishable result; if such a job is "
+        "interrupted and resumed it finishes iteration-grade instead. A store written by a "
+        "different KG build, or locked by another run, fails the job with the reason. The "
+        "report is written once, at the end, into output_dir, never over an existing report. "
+        "Poll job_status about once a minute; then list_review_items."
+    ),
+}
+
+
 class Provenance(BaseModel):
     """Which client, API, and KG build answered. ``kg_verified`` is false unless one is named."""
 

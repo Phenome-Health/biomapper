@@ -45,10 +45,13 @@ from biomapper.mcp.gate import (
     LoopGuardTripped,
     RequestGate,
 )
+from biomapper.mcp.harmonize_jobs import CohortSpec
 from biomapper.mcp.jobs import (
+    HarmonizeStatus,
     JobError,
     JobManager,
     JobStatus,
+    JobStatusBase,
     JobStatusList,
     probe_pins,
     roots_from_uris,
@@ -267,30 +270,38 @@ def build_server(config: ServerConfig | None = None) -> MCPServer[AppState]:
                 base_url=cfg.base_url, timeout=cfg.interactive_timeout_s, **key_kwargs
             ) as interactive,
             BioMapperClient(base_url=cfg.base_url, timeout=cfg.job_timeout_s, **key_kwargs) as jc,
-            anyio.create_task_group() as tg,
         ):
             refs = RefStore(cfg.home, wall_clock=cfg.wall_clock, ttl_s=cfg.ref_ttl_s)
             jobs = JobManager(cfg, gate=gate, client=jc, refs=refs)
-            state = AppState(
-                config=cfg,
-                interactive=interactive,
-                job_client=jc,
-                gate=gate,
-                guard=LoopGuard(cfg.loop_limit, cfg.loop_window_s, clock=cfg.monotonic),
-                jobs=jobs,
-                refs=refs,
-                candidate_budget=CandidateBudget(
-                    cfg.candidate_budget, cfg.candidate_window_s, clock=cfg.monotonic
-                ),
-            )
-            tg.start_soon(state.load_pins)
-            tg.start_soon(jobs.run_worker)
-            tg.start_soon(jobs.auto_resume, roots_from_uris([]))
             try:
-                yield state
+                async with anyio.create_task_group() as tg:
+                    state = AppState(
+                        config=cfg,
+                        interactive=interactive,
+                        job_client=jc,
+                        gate=gate,
+                        guard=LoopGuard(cfg.loop_limit, cfg.loop_window_s, clock=cfg.monotonic),
+                        jobs=jobs,
+                        refs=refs,
+                        candidate_budget=CandidateBudget(
+                            cfg.candidate_budget, cfg.candidate_window_s, clock=cfg.monotonic
+                        ),
+                    )
+                    tg.start_soon(state.load_pins)
+                    tg.start_soon(jobs.run_worker)
+                    tg.start_soon(jobs.auto_resume, roots_from_uris([]))
+                    try:
+                        yield state
+                    finally:
+                        # A harmonize job runs a synchronous function on a worker thread. The
+                        # cancel reaches it at its next bridge call, and the task group does
+                        # not exit until that thread has, so it cannot outlive the server
+                        # holding a saved-mapping store's lock.
+                        jobs.begin_shutdown()
+                        tg.cancel_scope.cancel()
             finally:
+                # Job locks go last, after the worker (and its thread) are gone.
                 jobs.close()
-                tg.cancel_scope.cancel()
 
     server: MCPServer[AppState] = MCPServer(
         "biomapper",
@@ -685,6 +696,52 @@ def _finish_ref(
 def _register_job_tools(server: MCPServer[AppState]) -> None:
     from biomapper.mcp.jobs import JOB_TOOL_DESCRIPTIONS, JobError
 
+    @server.tool(description=tools.HARMONIZE_DESCRIPTIONS["harmonize_cohorts"])
+    async def harmonize_cohorts(
+        a: CohortSpec,
+        b: CohortSpec,
+        entity: str,
+        ctx: Context[AppState, Any],
+        roots: ClientRoots,
+        output_dir: str | None = None,
+        category: str | None = None,
+    ) -> HarmonizeStatus:
+        state = _state(ctx)
+        try:
+            return await state.jobs.harmonize.submit(
+                kind="harmonize_cohorts", specs=[a, b], entity=entity, category=category,
+                output_dir=output_dir, store_dir=None, remap_all=False,
+                client_roots=roots_from_uris(roots.roots),
+            )
+        except JobError as exc:
+            raise ToolError(str(exc)) from None
+
+    @server.tool(description=tools.HARMONIZE_DESCRIPTIONS["harmonize_many"])
+    async def harmonize_many(
+        cohorts: list[CohortSpec],
+        entity: str,
+        ctx: Context[AppState, Any],
+        roots: ClientRoots,
+        output_dir: str | None = None,
+        store_dir: str | None = None,
+        category: str | None = None,
+        remap_all: bool = False,
+    ) -> HarmonizeStatus:
+        state = _state(ctx)
+        try:
+            return await state.jobs.harmonize.submit(
+                kind="harmonize_many", specs=list(cohorts), entity=entity, category=category,
+                output_dir=output_dir, store_dir=store_dir, remap_all=remap_all,
+                client_roots=roots_from_uris(roots.roots),
+            )
+        except JobError as exc:
+            raise ToolError(str(exc)) from None
+
+    # A misspelled option (remap=true, output=...) must be refused, not silently dropped: the
+    # job would run for hours with a setting the agent believes it changed.
+    _forbid_extra_arguments(server, "harmonize_cohorts")
+    _forbid_extra_arguments(server, "harmonize_many")
+
     @server.tool(description=JOB_TOOL_DESCRIPTIONS["map_file"])
     async def map_file(
         path: str,
@@ -727,7 +784,7 @@ def _register_job_tools(server: MCPServer[AppState]) -> None:
     @server.tool(description=JOB_TOOL_DESCRIPTIONS["resume_job"])
     async def resume_job(
         job_id: str, ctx: Context[AppState, Any], roots: ClientRoots
-    ) -> JobStatus:
+    ) -> JobStatusBase:
         state = _state(ctx)
         try:
             return await state.jobs.resume(job_id, client_roots=roots_from_uris(roots.roots))
@@ -737,7 +794,7 @@ def _register_job_tools(server: MCPServer[AppState]) -> None:
     @server.tool(description=JOB_TOOL_DESCRIPTIONS["cancel_job"])
     async def cancel_job(
         job_id: str, ctx: Context[AppState, Any], roots: ClientRoots
-    ) -> JobStatus:
+    ) -> JobStatusBase:
         state = _state(ctx)
         try:
             return await state.jobs.cancel(job_id, client_roots=roots_from_uris(roots.roots))
