@@ -825,7 +825,8 @@ job ownership uses OS file locks, which network filesystems may not honor across
 | `curies_provided` | `list[str]` | CURIEs normalized from the identifiers you supplied (engine v1.3.0+; empty from older servers) |
 | `chosen_kg_id` | `str \| None` | Resolver-selected knowledge graph ID |
 | `chosen_kg_id_review` | `str \| None` | Review flag for source-weighted small-molecule ChEBI conflicts: `"divergent_refmet"`, `"conflict_no_structure"`, or `None` |
-| `confidence_score` | `float \| None` | Highest score across annotators |
+| `confidence_score` | `float \| None` | Score of `chosen_kg_id`'s node: the best score an annotator gave a CURIE on the committed node. `None` when no annotator scored that node |
+| `max_annotator_score` | `float \| None` | Best score any annotator gave any node, committed or not (this was `confidence_score` through 1.8.0) |
 | `confidence_tier` | `str` | `"high"` (≥2.0) / `"medium"` (1–2) / `"low"` (<1) / `"unknown"` |
 | `identifiers` | `dict[str, list[str]]` | Vocabulary → IDs, e.g. `{"CHEBI": ["15971"]}` |
 | `kg_equivalent_ids` | `dict[str, list[str]]` | All equivalent IDs from the resolved KG node, by CURIE prefix |

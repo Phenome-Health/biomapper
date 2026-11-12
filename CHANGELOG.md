@@ -5,6 +5,23 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **`MappingResult.confidence_score` is now the score of the committed node.** It was the highest
+  score any annotator gave any node, so when two KG nodes described one molecule and the resolver
+  committed the lower-scored or unscored one, the client reported the other node's score
+  (Phenome-Health/biomapper2#155 read as "engine score == twin score" for this reason). Only a
+  scored code whose CURIE lives on `chosen_kg_id`'s node (per the response's `kg_ids`) now counts.
+  A row whose chosen node no annotator scored, or that has no chosen node, reports `None` and
+  `confidence_tier == "unknown"` (`not_scored` in the MCP server) where it could previously report
+  another node's tier. The MCP `confidence_score` / `confidence_tier` fields and the benchmark
+  mapper's `confidence_score` column follow.
+
+### Added
+
+- **`MappingResult.max_annotator_score`** carries the previous value: the best score any annotator
+  gave any node, whether or not the resolver committed it.
+
 ## [1.8.0] - 2026-11-10
 
 ### Added
