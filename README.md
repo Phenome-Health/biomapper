@@ -790,7 +790,10 @@ timestamps.
   the same job; a `failed` job is retried by submitting the same call again.
 - **Saved mappings and the publication grade (`harmonize_many`).** Mappings are saved in
   `store_dir` (default `harmonize_many_store/` beside `output_dir`) under the 1.8.0 rules, shared
-  with the Python API: a later run maps only new names and is
+  with the Python API. Before mapping, a job makes the one store folder it appends to
+  (`<store>/<arm>/<category>/`) and the files in it owner-only, so a store first written by a
+  Python run is no longer readable by other local users; the store root and anything else in it
+  keep their permissions, and a readable entry owned by another user is refused. Reuse: a later run maps only new names and is
   `iteration-grade, not for publication`. `remap_all=true` maps everything again and, on a
   verified KG build, is `publishable`. **A `remap_all` job that is interrupted and resumed
   finishes iteration-grade**, and its summary says so: the resumed pass reuses the chunks saved

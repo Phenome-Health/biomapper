@@ -909,3 +909,92 @@ async def test_a_write_that_fails_partway_leaves_no_partial_report_and_a_retry_c
     record = json.loads((job_dir(config, job["job_id"]) / "job.json").read_text())
     assert sorted(p.name for p in out.iterdir() if p.name != "choices.tsv") == sorted(
         record["placed"])
+
+
+def _loosen_leaf(store: Path) -> Path:
+    """Make the names-only store folder look as a Python API run under umask 022 leaves it."""
+    leaf = store / "names_only" / _safe_dir(resolve_category("metabolites", None))
+    os.chmod(leaf, 0o755)
+    for entry in leaf.iterdir():
+        if entry.is_file():
+            os.chmod(entry, 0o644)
+    return leaf
+
+
+async def test_a_readable_store_from_an_earlier_run_is_made_private_before_it_is_appended_to(
+    router, tmp_path, data
+) -> None:
+    """The private umask covers new files only; the job appends to the existing cache file."""
+    Scripted().mount(router)
+    store = data / "shared"
+    store.mkdir()
+    notes = store / "notes.txt"
+    notes.write_text("shared notes")
+    os.chmod(store, 0o755)
+    os.chmod(notes, 0o644)
+    config = cfg(tmp_path, data)
+    async with Client(build_server(config)) as client:
+        first = await submit_many(client, three(data), store_dir=str(store))
+        await wait_h(client, first["job_id"], "complete")
+        leaf = _loosen_leaf(store)
+        assert stat.S_IMODE((leaf / "entity_cache.jsonl").stat().st_mode) == 0o644
+        second = await submit_many(client, three(data), store_dir=str(store),
+                                   output_dir=str(data / "second"))
+        await wait_h(client, second["job_id"], "complete")
+    assert stat.S_IMODE(leaf.stat().st_mode) == 0o700
+    inside = {p.name: stat.S_IMODE(p.stat().st_mode) for p in leaf.iterdir() if p.is_file()}
+    assert inside and all(mode & 0o077 == 0 for mode in inside.values()), inside
+    assert stat.S_IMODE(store.stat().st_mode) == 0o755, "the store root keeps its mode"
+    assert stat.S_IMODE(notes.stat().st_mode) == 0o644, "unrelated files keep their modes"
+
+
+async def test_a_readable_store_entry_owned_by_another_user_is_refused_before_any_request(
+    router, tmp_path, data, monkeypatch
+) -> None:
+    scripted = Scripted().mount(router)
+    store = data / "shared"
+    config = cfg(tmp_path, data)
+    async with Client(build_server(config)) as client:
+        first = await submit_many(client, three(data), store_dir=str(store))
+        await wait_h(client, first["job_id"], "complete")
+        leaf = _loosen_leaf(store)
+        sent = len(scripted.sent_names)
+        real_uid = os.getuid()
+        monkeypatch.setattr(os, "getuid", lambda: real_uid + 1)
+        second = await submit_many(client, three(data), store_dir=str(store),
+                                   output_dir=str(data / "second"))
+        failed = await wait_h(client, second["job_id"], "failed", "complete")
+    assert failed["state"] == "failed" and "belongs to another user" in failed["reason"], failed
+    assert len(scripted.sent_names) == sent, "refused before any mapping request"
+    assert stat.S_IMODE(leaf.stat().st_mode) == 0o755, "nothing this job could not own is changed"
+
+
+def test_a_failed_write_removes_the_file_it_created(tmp_path, monkeypatch) -> None:
+    """On a filesystem with no hard links the final name is written directly."""
+    from biomapper.mcp.harmonize_jobs import HarmonizeRunner
+
+    def no_space(fd: int) -> None:
+        raise OSError("No space left on device")
+
+    target = tmp_path / "summary.json"
+    monkeypatch.setattr(os, "fsync", no_space)
+    with pytest.raises(OSError, match="No space left"):
+        HarmonizeRunner._write_new(target, b"{}")
+    assert not target.exists()
+
+
+async def test_placement_completes_on_a_filesystem_without_hard_links(
+    router, tmp_path, data, monkeypatch
+) -> None:
+    Scripted().mount(router)
+
+    def no_links(src: object, dst: object, **kw: object) -> None:
+        raise OSError("Operation not permitted")
+
+    monkeypatch.setattr(os, "link", no_links)
+    async with Client(build_server(cfg(tmp_path, data))) as client:
+        job = await submit_many(client, three(data))
+        done = await wait_h(client, job["job_id"], "complete")
+    out = Path(done["output_dir"])
+    names = sorted(p.name for p in out.iterdir())
+    assert names and not any(n.endswith(".tmp") for n in names), names

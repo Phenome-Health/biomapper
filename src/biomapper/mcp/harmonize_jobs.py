@@ -36,6 +36,7 @@ import logging
 import os
 import re
 import shutil
+import stat
 import threading
 import warnings
 from collections.abc import Iterator
@@ -679,6 +680,36 @@ class HarmonizeRunner:
                     f"{leaf} in the saved-mapping store is outside the folders allowed in this "
                     "session. Nothing was written."
                 )
+            self._privatize_leaf(leaf)
+
+    @staticmethod
+    def _privatize_leaf(leaf: Path) -> None:
+        """Owner-only for the one store folder this job appends cohort data to, before it does.
+
+        The private umask covers what the job creates. A store made earlier by a Python API run
+        under an ordinary umask already has a readable folder and cache file, and the unchanged
+        writer appends to that same file, so the new rows would be readable too. Only this
+        ``<store>/<arm>/<category>/`` folder and the files directly in it are changed: the store
+        root and anything else under it keep their modes. A readable entry that belongs to another
+        user cannot be made private, so the job is refused before any request.
+        """
+        if not leaf.is_dir():
+            return  # created by the run, under the private umask
+        uid = os.getuid() if hasattr(os, "getuid") else None
+        for entry in [leaf, *sorted(leaf.iterdir())]:
+            info = entry.lstat()
+            is_dir = stat.S_ISDIR(info.st_mode)
+            if not (is_dir or stat.S_ISREG(info.st_mode)) or (is_dir and entry != leaf):
+                continue
+            if stat.S_IMODE(info.st_mode) & 0o077 == 0:
+                continue
+            if uid is not None and info.st_uid != uid:
+                raise JobError(
+                    f"{entry} in the saved-mapping store is readable by other users and belongs "
+                    "to another user, so this job cannot make it private before adding cohort "
+                    "data to it. Nothing was written. Pass another store_dir."
+                )
+            os.chmod(entry, 0o700 if is_dir else 0o600)
 
     def _open_caches(self, job: HarmonizeJob, pin: dict[str, Any]) -> dict[str, EntityCache]:
         root = self.m._dir(job.job_id) / CACHE_DIR
@@ -820,9 +851,9 @@ class HarmonizeRunner:
     def _tighten(self, job: HarmonizeJob, staging: Path) -> None:
         """Owner-only for the job's OWN directories (belt and braces: they are created private).
 
-        The saved-mapping store is deliberately not touched: it may be a shared or pre-existing
-        folder, and changing the mode of files this job did not create would lock others out.
-        What the job creates there is private from creation (see :func:`_private_umask`).
+        The saved-mapping store is not touched here: it may be a shared or pre-existing folder.
+        What the job creates there is private from creation (see :func:`_private_umask`), and the
+        one folder it appends to is made private before the run (see :meth:`_privatize_leaf`).
         """
         _chmod_tree(staging)
         _chmod_tree(self.m._dir(job.job_id) / CACHE_DIR)
@@ -910,10 +941,18 @@ class HarmonizeRunner:
         """Create ``path`` owner-only with ``data``; never through a link, never over a file."""
         nofollow = getattr(os, "O_NOFOLLOW", 0)
         fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | nofollow, 0o600)
-        with os.fdopen(fd, "wb") as fh:
-            fh.write(data)
-            fh.flush()
-            os.fsync(fh.fileno())
+        try:
+            with os.fdopen(fd, "wb") as fh:
+                fh.write(data)
+                fh.flush()
+                os.fsync(fh.fileno())
+        except BaseException:
+            # The exclusive create succeeded, so the file is this job's. Without this, a failed
+            # write on a filesystem with no hard links (where the final name is written
+            # directly) would leave a partial report this job could not tell from a stranger's.
+            with contextlib.suppress(OSError):
+                os.unlink(path)
+            raise
 
     @staticmethod
     def _temp(job: HarmonizeJob, output: Path, name: str) -> Path:
