@@ -503,6 +503,10 @@ What it does:
    identifiers. `entity` takes `metabolites` (SmallMolecule), `proteins` (Protein), `genes` (Gene),
    `labs` (ClinicalMeasurement, where lab tests live in Biolink) or any raw `biolink:` category;
    `category=` overrides an alias. Name linking is on for SmallMolecule only, as in `harmonize()`.
+   It follows the category and has no override here (gene and protein symbols are
+   case-sensitive, so a case-insensitive name match can join different entities); the report
+   says whether it was on and why (`name_linking` in `settings.json`, `summary.json` and
+   `report.json`).
 2. **Identifier arm, shared vocabularies only.** You declare identifier columns per vocabulary
    and cohort (`{"LOINC": [...]}`); names are normalized, so `KEGG.COMPOUND` equals `KEGG`. Only
    vocabularies **both** cohorts declare are supplied as mapping input, and only rows carrying
@@ -530,8 +534,9 @@ under the current directory (override with `output_dir=`; `save=False` to skip;
 `report.write(path)` any time): mapping results per arm and cohort, written as each arm finishes
 so a failure keeps finished work, link and possible-missed tables per arm, `diff.tsv`,
 `review_queue.tsv`,
-`settings.json` and `summary.json`. Nothing beyond what you passed in is written, and input files
-are recorded by name and SHA-256, never by absolute path.
+`settings.json`, `summary.json` and `report.json` (the whole report as one JSON document, see
+[Results as plain data](#results-as-plain-data)). Nothing beyond what you passed in is written,
+and input files are recorded by name and SHA-256, never by absolute path.
 
 **Pins.** The package version; the API's `/health` status and self-reported version (labelled
 "self-reported, known stale": the API does not expose its engine release, which is recorded as
@@ -544,6 +549,26 @@ not an exception. Pass `mapper=` (any `(records, *, entity_type, annotation_mode
 list[MappingResult]` callable) to replay recorded results offline; the tests replay the UK Biobank
 x Arivale labs this way (`tests/fixtures/cohorts_labs_cm/`, KRAKEN kg 2.3.0 / 3dd08a5b: 37 pairs,
 21 one-to-one by name).
+
+**Progress as data.** `on_progress=` takes a callable that receives a `HarmonizeProgress` at the
+start of each arm and cohort and after every batch: `function`, `arm` (`names_only`,
+`identifier` or `review`), `cohort`, `entities_done`, `entities_total`; `to_dict()` gives plain
+data. It is the hook for a web backend; `progress=True` (stderr lines) and `on_message=` (the
+"wrote results" line) work as before beside it. A callback that raises is reported once as a
+warning and the run continues.
+
+```python
+from biomapper import HarmonizeProgress, harmonize_cohorts
+
+def show(p: HarmonizeProgress) -> None:
+    print(f"{p.arm} {p.cohort}: {p.entities_done}/{p.entities_total}")
+
+harmonize_cohorts(ukbb, arivale, entity="labs", a_label="ukbb", b_label="arivale",
+                  on_progress=show)
+# names_only ukbb: 0/86
+# names_only ukbb: 10/86
+# ...
+```
 
 ### Harmonizing more than two cohorts: `harmonize_many()`
 
@@ -653,12 +678,100 @@ one KG build. **Numbers you publish should come from a `remap_all=True` run**, w
 **Output by default** goes to `biomapper_runs/harmonize_many_<UTC stamp>/` (`output_dir=`,
 `save=False`, `report.write(path)` as for `harmonize_cohorts()`), with per-cohort provenance
 (`provenance_<arm>_<label>.json`: session id, request checksum, file SHA-256, reused and fresh
-counts), the pins, `settings.json` and `summary.json`. No absolute path is written to JSON.
+counts), the pins, `settings.json`, `summary.json` and `report.json`. No absolute path is written
+to JSON.
+
+**Progress as data.** `on_progress=` works as for `harmonize_cohorts()`, with one difference:
+each distinct entity is mapped once for all cohorts, so an update's `cohort` is `None`,
+`cohorts` names every label, and the counts are the arm's distinct entities. Saved mappings that
+are reused count as done from the first update.
 
 The split-recall gate (`scripts/harmonize_many_split_recall.py`) measures, on a NECS x Arivale
 answer key built from curated HMDB identifiers rather than names, how many true matches land in a
 node group, in the cross-node queue, or in neither, reported separately for pairs whose names
 differ. It is a live run the operator starts.
+
+### Results as plain data
+
+Every result class has a `to_dict()` that returns plain JSON-safe data (`json.dumps` takes it as
+is), and `report.write()` saves the report's as `report.json` beside the tables. The keys are
+stable: `schema_version` (currently 1) is raised if one is ever renamed or removed, and new keys
+may be added without raising it.
+
+| Call | What it holds |
+|---|---|
+| `CohortHarmonizationReport.to_dict()` | `kind`, `labels`, `category`, `name_linking`, `settings`, `summary`, `pins`, `warnings`, `excluded`; `arms.names_only` and `arms.identifier` (`None` when skipped, with `identifier_skipped_reason`); `diff`; `review` and `review_queue`; `mappings` per arm and cohort |
+| `ManyCohortReport.to_dict()` | the same header plus `status` and `grade`; `arms.<name>` with `groups`, `rows`, `not_grouped`, `cross_node`, `cross_node_pairs`, `withheld`, `pair_counts`, `id_check_review`, `mappings`; `diff`; `store` and `mapping` (reused, fresh and errored counts) |
+| `HarmonizationResult.to_dict()` | `links`, `name_match_withheld`, `unresolved` and `errors` per cohort, `possible_missed`, `summary` |
+| `Link.to_dict()` | keys, `basis`, `bases`, `shared_identifiers`, partner counts, `one_to_one`, `ambiguous`, the confidence-marker and mixture fields, `needs_review`, `review_reasons` |
+| `ReviewItem.to_dict()`, `ReviewCheck.to_dict()`, `PossibleMiss.to_dict()` | one review row each |
+| `biomapper.jobs.load_report(directory)` | reads `report.json` back as a dict |
+
+In a report, each link also carries both names and both chosen nodes (`a_name`, `b_name`,
+`a_chosen_kg_id`, `b_chosen_kg_id`), and each arm lists `unresolved_rows` and `errored_rows` per
+cohort with key and name, so a table can be exported without joining. Ambiguous links are the
+links with `ambiguous: true`; one-to-one links have `one_to_one: true`. `name_linking` says
+whether name links were on and why (`enabled`, `category`, `reason`). A saved `harmonize_many`
+run streams its cross-node row pairs to `cross_node_pairs_<arm>.tsv` instead of holding them in
+memory; `report.json` then has `cross_node_pairs: null` and names the file in
+`cross_node_pairs_file`.
+
+### Resumable jobs from your own application
+
+A harmonization maps every entity at about 4 to 5 seconds each, so a real run is a long
+background job. `biomapper.jobs.HarmonizeJobs` runs `harmonize_cohorts()` or `harmonize_many()`
+as one, from any asyncio application. It is the job runner the MCP server uses, without the MCP
+client: a job killed mid-run is continued by the next process that opens the same `home`, and no
+entity whose answer was saved is mapped again (at most the one batch in flight at the kill is
+sent a second time).
+
+```python
+from biomapper.jobs import CohortSpec, HarmonizeJobs
+
+async with HarmonizeJobs(
+    home="/var/lib/myapp/biomapper",          # job records, caches, review evidence
+    roots=["/var/lib/myapp/runs"],            # the only folders jobs may read and write
+    on_progress=lambda job_id, p: publish(job_id, p.to_dict()),
+) as jobs:
+    job = await jobs.submit_many(
+        [CohortSpec(label="a", path="/var/lib/myapp/runs/42/a.tsv"),
+         CohortSpec(label="b", path="/var/lib/myapp/runs/42/b.tsv",
+                    vocabularies={"HMDB": ["hmdb_id"]}),
+         CohortSpec(label="c", path="/var/lib/myapp/runs/42/c.tsv")],
+        entity="metabolites",
+        output_dir="/var/lib/myapp/runs/42/report",
+        store_dir="/var/lib/myapp/runs/42/store",   # per user or per job, not shared
+    )
+    status = await jobs.status(job.job_id)          # state, stage, progress, eta_s
+    done = await jobs.wait(job.job_id)
+    report = jobs.load_report(job.job_id)           # the whole report as a dict
+    page = jobs.review_items(job.job_id)            # weak rows and links to look at
+```
+
+| Method | What it does |
+|---|---|
+| `submit_cohorts(a, b, *, entity, category=None, output_dir=None)` | Queue a two-cohort job |
+| `submit_many(cohorts, *, entity, category=None, output_dir=None, store_dir=None, remap_all=False)` | Queue a job over two or more cohorts |
+| `status(job_id)`, `list_jobs()` | `HarmonizeStatus`: `state`, `stage`, `entities_mapped` / `entities_total`, `progress` (the latest per-arm update), `eta_s`, `summary` and `review_items` once finished |
+| `wait(job_id, *, poll_s=1.0, timeout_s=None)` | Poll until the job is no longer queued or running |
+| `resume(job_id)`, `cancel(job_id)` | Continue a stalled, paused, expired or cancelled job; stop one after its current batch |
+| `load_report(job_id)` | `report.json` of a finished job |
+| `review_items(job_id, *, kind=None, offset=0, limit=None)`, `review_item(job_id, ref)` | The finished job's review items, read from disk |
+
+Enter it once per process, in one task (a FastAPI lifespan fits). On entry it queues every
+unfinished job found under `roots`. Jobs run one at a time and each request goes through one
+gate, because the shared deployment slows down sharply under concurrent load. Refusals (a path
+outside `roots`, a missing column, a cap, a failed health check) raise `biomapper.jobs.JobError`
+with a message written for the end user. The statuses and review pages are Pydantic models:
+`model_dump(mode="json")` gives plain data. Limits such as `harmonize_max_queued` (unfinished
+jobs at once, default 3) are keyword arguments of `HarmonizeJobs`.
+
+`on_progress` is called on your event loop with `(job_id, HarmonizeProgress)`; the batch size is
+`chunk_size` (default 5). Callers that poll get the same update from `status().progress`.
+
+A job differs from a direct call in the ways the MCP section below lists: a failed batch is
+retried, a job that ends with errored rows is `partial`, and an interrupted `remap_all` job
+finishes `iteration-grade`.
 
 ---
 
@@ -973,6 +1086,10 @@ footgun this model is designed to prevent.
 | 1.0–2.0 | `medium` | Quick sanity check |
 | < 1.0 | `low` | Manual review recommended |
 | `None` | `unknown` | No score returned (e.g. HMDB-hint resolved) |
+
+From 1.9.0 `confidence_score` is the score of the chosen node, where it used to be the best
+score of any candidate; the old value is `max_annotator_score`. If you display scores or tiers,
+read [docs/migration-1.9.0.md](docs/migration-1.9.0.md) for which numbers move.
 
 ### Error handling
 

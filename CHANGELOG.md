@@ -19,11 +19,45 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   jobs, `harmonize_many` stores, benchmark arm caches) hold no raw response to recompute from, so
   on load their stored score moves to `max_annotator_score` and their `confidence_score` reads
   `None` rather than being reused under the new meaning; re-map to get the chosen node's score.
+  [docs/migration-1.9.0.md](docs/migration-1.9.0.md) says which displayed numbers move.
+- **`harmonize_cohorts()` and `harmonize_many()` reports gain a `name_linking` block** in
+  `settings.json` and `summary.json` (and so in the MCP job summary): whether name links were on,
+  the category that decided it, and the reason. Name linking still follows the category
+  (small molecules only) and has no override on these two functions; `harmonize()` keeps its
+  `link_by_name` argument. No linking rule changed.
+- **Both functions write one more file, `report.json`** (see Added). An MCP harmonize job
+  therefore refuses an `output_dir` that already holds a `report.json`.
 
 ### Added
 
 - **`MappingResult.max_annotator_score`** carries the previous value: the best score any annotator
   gave any node, whether or not the resolver committed it.
+- **Structured progress: `on_progress=`** on `harmonize_cohorts()` and `harmonize_many()`. The
+  callable receives a `HarmonizeProgress` (exported from `biomapper`) at the start of each arm
+  and after every batch: `function`, `arm`, `cohort`, `entities_done`, `entities_total`, with
+  `to_dict()`. `harmonize_cohorts()` reports per cohort; `harmonize_many()` maps each distinct
+  entity once for all cohorts, so its updates carry `cohort=None`, every label in `cohorts`, and
+  count distinct entities (reused saved mappings count as done). With a callback the mapper is
+  called once per batch instead of once per cohort; the requests sent are the same. A callback
+  that raises is reported once as a warning and the run continues. `progress=True` and
+  `on_message=` are unchanged.
+- **`biomapper.jobs.HarmonizeJobs`: resumable harmonization jobs outside MCP.** The MCP
+  server's job runner (gated mapper, per-job entity cache, staging and single placement, review
+  items) is now public API for any asyncio application: `submit_cohorts`, `submit_many`,
+  `status`, `list_jobs`, `wait`, `resume`, `cancel`, `load_report`, `review_items`,
+  `review_item`. A job killed mid-run is continued by the next process that opens the same
+  `home`; entities whose answers were saved are not mapped again. `on_progress` is delivered on
+  the caller's event loop as `(job_id, HarmonizeProgress)`, and the latest update is also on the
+  job's status (`progress`, a new optional field of the MCP `HarmonizeStatus` too). The MCP
+  server uses the same code path as before; importing `biomapper.jobs` does not import the MCP
+  SDK.
+- **Results as plain data.** `to_dict()` on `CohortHarmonizationReport`, `ManyCohortReport`,
+  `ArmReport`, `HarmonizationResult`, `Link`, `PossibleMiss`, `ReviewItem`, `ReviewCheck`,
+  `ArmDiff`, `GroupDiff`, `IdCheck` and the `biomapper.harmonize.nway` classes: JSON-safe, no
+  absolute paths, stable keys under `schema_version` 1. `report.write()` saves the report's as
+  `report.json`, and `biomapper.jobs.load_report(directory)` reads it back. In a report each
+  link carries both names and chosen nodes, and each arm lists unresolved and errored rows per
+  cohort with key and name.
 - **Harmonization through the MCP server.** Two new tools, `harmonize_cohorts` and
   `harmonize_many`, run the Python functions of the same names, unchanged, as resumable
   background jobs on the server's one worker: submit, `job_status`, `resume_job`, `cancel_job`.

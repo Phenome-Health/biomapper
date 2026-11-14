@@ -58,8 +58,10 @@ from biomapper._mapping_store import (
 )
 from biomapper._pins import kg_build_label, kg_verified
 from biomapper.cohorts import (
+    REPORT_FILENAME,
     BatchedApiMapper,
     CohortHarmonizationReport,
+    HarmonizeProgress,
     _require_cohort_labels,
     harmonize_cohorts,
     read_cohort,
@@ -105,9 +107,9 @@ ANNOTATION_MODES = ("missing", "none")  # every mode the two functions send
 LABEL = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,39}")
 # Names an existing output directory may not already hold: the functions' own report files.
 REPORT_PATTERNS = (
-    "summary.json", "settings.json", "diff.tsv", "review_queue.tsv", "mapping_*.tsv",
-    "links_*.tsv", "possible_missed_*.tsv", "provenance_*.json", "membership_*.tsv",
-    "matrix_*.tsv", "overlap_*.tsv", "cross_node_*.tsv", "withheld_*.tsv",
+    REPORT_FILENAME, "summary.json", "settings.json", "diff.tsv", "review_queue.tsv",
+    "mapping_*.tsv", "links_*.tsv", "possible_missed_*.tsv", "provenance_*.json",
+    "membership_*.tsv", "matrix_*.tsv", "overlap_*.tsv", "cross_node_*.tsv", "withheld_*.tsv",
     "flagged_groups_*.tsv", "not_grouped_*.tsv", "id_check_review_*.tsv",
 )
 GRADE_NOTE = (
@@ -270,6 +272,7 @@ class HarmonizeRunner:
             updated_utc=job.updated_utc,
             summary=job.summary,
             review_items=ReviewCounts(**job.review) if job.review is not None else None,
+            progress=job.progress,
         )
 
     # -- submit ------------------------------------------------------------
@@ -601,14 +604,38 @@ class HarmonizeRunner:
         def quiet(message: str) -> None:  # stdout belongs to the MCP transport
             logger.info("%s", message)
 
+        def progress(event: HarmonizeProgress) -> None:
+            # Called on the worker thread between batches; the record and any listener belong
+            # to the server loop. A failure here (the loop is shutting down) is not the run's.
+            try:
+                anyio.from_thread.run_sync(self._note_progress, job, event)
+            except Exception:  # noqa: BLE001
+                logger.debug("progress update for job %s was not delivered", job.job_id)
+
         common: dict[str, Any] = {
             "entity": job.entity, "category": job.category, "batch_size": mapper.batch_size,
             "timeout": cfg.job_timeout_s, "mapper": mapper, "base_url": cfg.base_url,
             "api_key": cfg.api_key, "kestrel_url": cfg.kestrel_url, "pins": pins,
             "output_dir": staging, "save": True, "on_message": quiet,
+            "on_progress": progress,
         }
         with _private_umask():
             return self._call_function(job, common, resumed)
+
+    def _note_progress(self, job: HarmonizeJob, event: HarmonizeProgress) -> None:
+        """Record the latest progress on the job and tell the embedding application, if any.
+
+        Runs on the server loop. The record is saved with the job's next counter update (every
+        chunk), so ``job_status`` shows it without an extra write per batch.
+        """
+        job.progress = event.to_dict()
+        listener = self.m.on_progress
+        if listener is None:
+            return
+        try:
+            listener(job.job_id, event)
+        except Exception:  # noqa: BLE001 — a listener must not stop the job
+            logger.exception("on_progress listener failed for job %s", job.job_id)
 
     @staticmethod
     def _call_function(
@@ -1001,6 +1028,7 @@ def _summary(job: HarmonizeJob, report: Any, resumed: bool) -> dict[str, Any]:  
             },
             "store": {k: full["store"][k] for k in ("reuse_enabled", "saving", "reason")},
             "warnings": full["warnings"],
+            "name_linking": full["name_linking"],
         }
         if resumed and job.options.get("remap_all") and out["publication_grade"] == (
             GRADE_ITERATION
@@ -1016,6 +1044,7 @@ def _summary(job: HarmonizeJob, report: Any, resumed: bool) -> dict[str, Any]:  
             "one_sided_code_review": full["review"],
             "vocabularies": full["vocabularies"],
             "warnings": full["warnings"],
+            "name_linking": full["name_linking"],
         }
     out["output_dir"] = job.output_dir
     return out
