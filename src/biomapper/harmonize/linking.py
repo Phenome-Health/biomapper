@@ -344,6 +344,35 @@ class Link:
         ``mixture``."""
         return bool(self.review_reasons)
 
+    def to_dict(self) -> dict[str, Any]:
+        """This link as plain JSON-safe data: every field, plus the derived review flags.
+
+        Sets become sorted lists. ``one_to_one`` is ``not ambiguous``. The keys are stable: new
+        ones may be added in a later release, existing ones are not renamed or removed.
+        """
+        return {
+            "a_key": self.a_key,
+            "b_key": self.b_key,
+            "basis": self.basis,
+            "bases": sorted(self.bases),
+            "shared_identifiers": sorted(self.shared),
+            "name_only": self.name_only,
+            "a_partners": self.a_partners,
+            "b_partners": self.b_partners,
+            "one_to_one": not self.ambiguous,
+            "ambiguous": self.ambiguous,
+            "a_id_confidence": self.a_id_confidence,
+            "b_id_confidence": self.b_id_confidence,
+            "id_confidence_differs": self.id_confidence_differs,
+            "a_is_mixture": self.a_is_mixture,
+            "b_is_mixture": self.b_is_mixture,
+            "a_mixture_key": self.a_mixture_key,
+            "b_mixture_key": self.b_mixture_key,
+            "mixture": self.mixture,
+            "needs_review": self.needs_review,
+            "review_reasons": list(self.review_reasons),
+        }
+
 
 def with_partner_counts(links: Iterable[Link]) -> tuple[Link, ...]:
     """Return the links with ``a_partners`` / ``b_partners`` set from this set of links.
@@ -517,6 +546,17 @@ class PossibleMiss:
     chosen_kg_id: str | None
     resolved: bool
     reasons: tuple[str, ...]
+
+    def to_dict(self) -> dict[str, Any]:
+        """This entry as plain JSON-safe data."""
+        return {
+            "cohort": self.cohort,
+            "key": self.key,
+            "name": self.name,
+            "chosen_kg_id": self.chosen_kg_id,
+            "resolved": self.resolved,
+            "reasons": list(self.reasons),
+        }
 
 
 def mapping_review_signals(result: MappingResult) -> tuple[str, ...]:
@@ -738,6 +778,32 @@ class HarmonizationResult:
                 "link_rate": self.b_link_rate,
                 "possible_missed": len(self.b_possible_missed),
             },
+        }
+
+    def to_dict(self) -> dict[str, Any]:
+        """The whole result as plain JSON-safe data (``json.dumps`` takes it as is).
+
+        ``links`` holds every link (:meth:`Link.to_dict`); filter on ``ambiguous``,
+        ``one_to_one`` or ``needs_review`` for the ambiguous, one-to-one and review sets.
+        ``unresolved`` and ``errors`` list each cohort's keys under its label,
+        ``name_match_withheld`` the short casefold-only pairs that were not linked, and
+        ``possible_missed`` the unlinked entities carrying a review signal. Keys are row keys as
+        given to :func:`harmonize`; the names belong to the caller's own rows. The keys of this
+        dictionary are stable: new ones may be added, existing ones are not renamed or removed.
+        """
+        return {
+            "labels": {"a": self.a_label, "b": self.b_label},
+            "summary": self.summary(),
+            "links": [lk.to_dict() for lk in self.links],
+            "name_match_withheld": [
+                {"a_key": a, "b_key": b} for a, b in self.name_match_withheld
+            ],
+            "unresolved": {
+                self.a_label: list(self.a_unresolved),
+                self.b_label: list(self.b_unresolved),
+            },
+            "errors": {self.a_label: list(self.a_errors), self.b_label: list(self.b_errors)},
+            "possible_missed": [m.to_dict() for m in self.possible_missed],
         }
 
 

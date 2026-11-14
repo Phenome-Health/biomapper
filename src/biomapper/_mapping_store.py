@@ -343,12 +343,19 @@ def map_requests(
     store: ArmStore | None,
     entity_type: str,
     annotation_mode: str,
+    batch_size: int | None = None,
+    on_batch: Callable[[int, int], None] | None = None,
 ) -> MapOutcome:
     """Map ``requests`` (``{"name", "identifiers"}``), serving saved results where allowed.
 
     Requests that repeat (same name and identifiers) are sent once. Misses go to ``mapper`` in
     ``store.batch_size`` chunks, and each chunk's successful results are saved before the next
     chunk is sent, so a kill loses at most the chunk in flight. Every row gets its own copy.
+
+    ``on_batch(done, total)`` counts distinct entities: it is called once before the first
+    chunk (``done`` is then the number served from the store) and once after every chunk.
+    Without a store the misses go to the mapper in one call, unless ``on_batch`` is given, in
+    which case they go in ``batch_size`` chunks so there is something to report between them.
     """
     options = {"entity_type": entity_type, "annotation_mode": annotation_mode}
     keys = [_entity_key(r, options) for r in requests]
@@ -366,7 +373,15 @@ def map_requests(
         if k not in found and k not in first:
             first[k] = r
             order.append(k)
-    chunk = store.batch_size if store is not None else max(len(order), 1)
+    if store is not None:
+        chunk = store.batch_size
+    elif on_batch is not None and batch_size is not None:
+        chunk = max(batch_size, 1)
+    else:
+        chunk = max(len(order), 1)
+    total = len(found) + len(order)
+    if on_batch is not None:
+        on_batch(len(found), total)
     for start in range(0, len(order), chunk):
         batch_keys = order[start : start + chunk]
         batch = [{"name": first[k]["name"], "identifiers": dict(first[k].get("identifiers") or {})}
@@ -377,4 +392,6 @@ def map_requests(
             cache.commit_batch(vocab=store.arm, batch_index=store.next_batch_index(),
                                keyed_results=keyed)
         found.update(keyed)
+        if on_batch is not None:
+            on_batch(len(found), total)
     return MapOutcome(results=[found[k].model_copy() for k in keys], reused=reused)

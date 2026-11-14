@@ -50,6 +50,7 @@ from typing import IO, Any
 from biomapper._mapping_store import ARMS, MappingStore, map_requests, pin_known
 from biomapper._pins import collect_pins, kg_build_label, kg_verified
 from biomapper._provenance import DEFAULT_KESTREL_URL
+from biomapper._version import resolve_version
 from biomapper.client import DEFAULT_BASE_URL
 from biomapper.cohorts import (
     DEFAULT_BATCH_SIZE,
@@ -57,15 +58,21 @@ from biomapper.cohorts import (
     DEFAULT_TIMEOUT_S,
     ENTITY_ALIASES,
     NAME_LINKING_CATEGORIES,
+    REPORT_FILENAME,
+    REPORT_SCHEMA_VERSION,
     BatchedApiMapper,
     Cohort,
     CohortInput,
     CohortRecord,
     Mapper,
+    ProgressCallback,
+    _mapping_row,
     _new_run_dir,
+    _ProgressReporter,
     _safe,
     _write_mapping,
     _write_tsv,
+    name_linking_info,
     read_cohort,
     request_checksum,
     resolve_category,
@@ -83,7 +90,7 @@ from biomapper.harmonize.nway import (
 )
 from biomapper.models import MappingResult
 
-__all__ = ["GroupDiff", "ManyCohortReport", "harmonize_many"]
+__all__ = ["ArmReport", "GroupDiff", "ManyCohortReport", "ReviewCheck", "harmonize_many"]
 
 ARM_NAMES_ONLY, ARM_IDENTIFIER = ARMS
 STORE_DIRNAME = "harmonize_many_store"
@@ -115,6 +122,11 @@ class ReviewCheck:
     name: str
     node: str | None
     check: IdCheck
+
+    def to_dict(self) -> dict[str, Any]:
+        """Plain JSON-safe data; ``check`` is the identifier check (status, declared, reason)."""
+        return {"cohort": self.cohort, "key": self.key, "name": self.name, "node": self.node,
+                "check": self.check.to_dict()}
 
 
 @dataclass
@@ -176,6 +188,58 @@ class ArmReport:
             },
         }
 
+    def to_dict(self) -> dict[str, Any]:
+        """This arm as plain JSON-safe data.
+
+        - ``summary``: :meth:`summary`.
+        - ``groups``: every node group with its members and flags (``clean``, ``multiplicity``,
+          ``broad``).
+        - ``rows``: every input row with its bucket (``grouped``, ``no_node``, ``unresolved``,
+          ``errored``), node and identifier check (``id_check``, ``None`` for a row that is not
+          grouped). ``not_grouped`` repeats the rows outside every group, per cohort.
+        - ``cross_node``: the review queue of links between rows on different nodes, by node
+          pair. ``cross_node_pairs`` is its row-pair drill-down, or ``None`` when the run
+          streamed it to ``cross_node_pairs_file`` in the run directory instead.
+        - ``withheld``: short name pairs equal only ignoring case, reported and not linked.
+        - ``pair_counts``: per cohort pair, the counts reconciled against ``harmonize()``.
+        - ``id_check_review``: grouped rows whose declared identifiers did not confirm their
+          node; ``id_check_independent`` says whether those identifiers were kept from the
+          mapper (names-only arm) or sent to it.
+        - ``mappings``: ``{cohort: [row, ...]}``, each input row with what was sent and what
+          it resolved to.
+        """
+        nway = self.nway.to_dict()
+        rows = []
+        for ref, row in zip(self.nway.rows, nway["rows"], strict=True):
+            check = self.id_checks.get((ref.cohort, ref.key))
+            rows.append({**row, "id_check": check.to_dict() if check is not None else None})
+        streamed = self.nway.drilldown is None and self.drilldown_file is not None
+        return {
+            "arm": self.arm,
+            "summary": self.summary(),
+            "groups": nway["groups"],
+            "rows": rows,
+            "not_grouped": {
+                label: [r for r in rows if r["cohort"] == label and r["bucket"] != "grouped"]
+                for label in self.nway.labels
+            },
+            "cross_node": nway["cross_node"],
+            "cross_node_pairs": nway["cross_node_pairs"],
+            "cross_node_pairs_file": f"cross_node_pairs_{self.arm}.tsv" if streamed else None,
+            "withheld": nway["withheld"],
+            "pair_counts": nway["pair_counts"],
+            "id_check_independent": self.id_check_independent,
+            "id_check_review": [i.to_dict() for i in self.id_check_review],
+            "mappings": {
+                label: [
+                    _mapping_row(rec, sent, res)
+                    for rec, sent, res in zip(self.records[label], self.sent[label],
+                                              self.results[label], strict=True)
+                ]
+                for label in self.records
+            },
+        }
+
 
 @dataclass(frozen=True)
 class GroupDiff:
@@ -190,6 +254,12 @@ class GroupDiff:
         return {"names_only_only": len(self.names_only_only),
                 "identifier_only": len(self.identifier_only), "both": len(self.both),
                 "membership_changed": len(self.membership_changed)}
+
+    def to_dict(self) -> dict[str, Any]:
+        """Plain JSON-safe data: the counts, and the node list behind each one."""
+        return {"counts": self.counts(), "names_only_only": list(self.names_only_only),
+                "identifier_only": list(self.identifier_only), "both": list(self.both),
+                "membership_changed": list(self.membership_changed)}
 
 
 def _members(group: NodeGroup) -> frozenset[tuple[str, str]]:
@@ -247,6 +317,7 @@ class ManyCohortReport:
             "entity": self.settings["entity"],
             "category": self.category,
             "link_by_name": self.settings["link_by_name"],
+            "name_linking": name_linking_info(self.category),
             "labels": list(self.labels),
             "n_cohorts": len(self.labels),
             "status": self.status,
@@ -271,6 +342,52 @@ class ManyCohortReport:
             "pins": self.pins,
         }
 
+    def to_dict(self) -> dict[str, Any]:
+        """The whole report as plain JSON-safe data: what ``report.json`` holds.
+
+        Top-level keys (``schema_version`` :data:`biomapper.cohorts.REPORT_SCHEMA_VERSION`; keys
+        are only added within a version):
+
+        - ``kind`` (``"harmonize_many"``), ``biomapper_version``, ``entity``, ``category``,
+          ``labels``, ``settings``, ``summary`` (:meth:`summary`), ``pins``, ``warnings``,
+          ``session_id``.
+        - ``status`` (``ok``, ``partial`` or ``failed``) and ``grade`` (``publishable`` or
+          ``iteration-grade, not for publication``).
+        - ``name_linking``: whether name links were on and why
+          (:func:`biomapper.cohorts.name_linking_info`).
+        - ``arms``: ``names_only`` and, unless skipped (``identifier_skipped_reason``),
+          ``identifier``; each is :meth:`ArmReport.to_dict` (groups, rows, the cross-node
+          review queue, withheld name pairs, identifier checks, mappings).
+        - ``diff``: group nodes by which arm produced them, or ``None``.
+        - ``store`` and ``mapping``: the saved-mapping store's state and, per arm and cohort,
+          how many rows were reused, mapped fresh or errored.
+        - ``excluded``: rows left out of each cohort (blank names), with the reason.
+
+        No absolute path appears in it. ``json.dumps`` takes the result as is.
+        """
+        return {
+            "schema_version": REPORT_SCHEMA_VERSION,
+            "kind": "harmonize_many",
+            "biomapper_version": resolve_version(),
+            "entity": self.settings["entity"],
+            "category": self.category,
+            "labels": list(self.labels),
+            "name_linking": name_linking_info(self.category),
+            "settings": self.settings,
+            "summary": self.summary(),
+            "status": self.status,
+            "grade": self.grade,
+            "arms": {name: arm.to_dict() for name, arm in self.arms.items()},
+            "identifier_skipped_reason": self.identifier_skipped_reason,
+            "diff": self.diff.to_dict() if self.diff is not None else None,
+            "store": dict(self.store),
+            "mapping": self.mapping,
+            "excluded": {label: [dict(r) for r in rows] for label, rows in self.excluded.items()},
+            "warnings": list(self.warnings),
+            "pins": self.pins,
+            "session_id": self.session_id,
+        }
+
     # -- writing ---------------------------------------------------------
 
     def write(
@@ -279,7 +396,8 @@ class ManyCohortReport:
         *,
         on_message: Callable[[str], None] | None = None,
     ) -> Path:
-        """Write every table and the summary; return the directory.
+        """Write every table, the summary and ``report.json`` (:meth:`to_dict`); return the
+        directory.
 
         ``path`` defaults to this report's ``output_dir``, or a new
         ``biomapper_runs/harmonize_many_<UTC timestamp>/`` under the current directory.
@@ -308,6 +426,7 @@ class ManyCohortReport:
             )
         _write_json(directory / "settings.json", {**self.settings, "pins": self.pins})
         _write_json(directory / "summary.json", self.summary())
+        _write_json(directory / REPORT_FILENAME, self.to_dict())
         self.output_dir = directory
         say(f"harmonize_many: wrote results to {directory}")
         if self._store_root is not None:
@@ -527,6 +646,7 @@ def harmonize_many(
     save: bool = True,
     remap_all: bool = False,
     on_message: Callable[[str], None] | None = None,
+    on_progress: ProgressCallback | None = None,
 ) -> ManyCohortReport:
     """Harmonize two or more cohort tables, grouping rows across all of them by chosen node.
 
@@ -564,6 +684,13 @@ def harmonize_many(
             (the run directory, the store, the "wrote results" lines). Default: print them. A
             caller that owns stdout, such as the MCP server's stdio transport, passes one.
             Progress lines (``progress=True``) and warnings go to stderr and are not routed.
+        on_progress: A callable that receives a
+            :class:`~biomapper.cohorts.HarmonizeProgress` at the start of each arm and after
+            every batch of ``batch_size`` entities. Each distinct entity is mapped once for all
+            cohorts, so the update's ``cohort`` is ``None``, ``cohorts`` names every label, and
+            the counts are the arm's distinct entities; saved mappings that are reused count
+            as done from the first update. It runs on the calling thread, between requests. If
+            it raises, a warning is issued once, it is not called again and the run continues.
 
     Returns:
         A :class:`ManyCohortReport`.
@@ -578,6 +705,7 @@ def harmonize_many(
     _require_labels(labels)
     resolved_category = resolve_category(entity, category)
     link_by_name = resolved_category in NAME_LINKING_CATEGORIES
+    report_progress = _ProgressReporter(on_progress, "harmonize_many")
     names_by = _per_cohort(name_columns, labels, "name_columns", "name")
     vocabs_by = _per_cohort(vocabularies, labels, "vocabularies", None)
     keys_by = _per_cohort(key_columns, labels, "key_columns", None)
@@ -666,8 +794,13 @@ def harmonize_many(
                         index.append((c.label, i))
                         requests.append({"name": rec.name, "identifiers": ids})
             say(f"{arm} arm: {len(requests)} rows to map")
+            on_batch = (
+                (lambda done, total: report_progress(arm, None, done, total, labels))
+                if report_progress.enabled else None
+            )
             outcome = map_requests(the_mapper, requests, store=store.arm(arm),
-                                   entity_type=resolved_category, annotation_mode="missing")
+                                   entity_type=resolved_category, annotation_mode="missing",
+                                   batch_size=batch_size, on_batch=on_batch)
             results = {c.label: list(base[c.label]) if base is not None
                        else [MappingResult(query_name=r.name) for r in c.records] for c in read}
             reused: dict[str, list[bool]] = {c.label: [] for c in read}
@@ -770,6 +903,7 @@ def harmonize_many(
             "category_overridden": category is not None,
             "aliases": dict(ENTITY_ALIASES),
             "link_by_name": link_by_name,
+            "name_linking": name_linking_info(resolved_category),
             "labels": list(labels),
             "cohorts": {
                 c.label: {
