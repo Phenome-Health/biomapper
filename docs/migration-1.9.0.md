@@ -39,10 +39,10 @@ For any one row the new score is equal to the old one, lower, or `None`. It is n
 |---|---|
 | The score itself | Unchanged for most rows. Lower, or blank, for a row whose best-scored identifier was on a node the resolver did not commit. |
 | `confidence_tier` (`high` ≥ 2.0, `medium` ≥ 1.0, `low`, `unknown`) | A row can drop a tier, or go to `unknown`. No row rises. |
-| Counts and charts by tier | `high` and `medium` can only shrink; `low` and `unknown` can only grow, by the same total. |
+| Counts and charts by tier | `high` can only shrink and `unknown` can only grow. `medium` and `low` can move either way: each gains the rows that drop into it and loses the rows that drop out of it. The total is unchanged. |
 | "Unknown" or "not scored" counts | Grow: a resolved row whose chosen node no annotator scored used to borrow another node's tier and now reports `unknown` (`not_scored` in the MCP server's output). |
-| Mean or median score | Equal or lower over the rows that still have a score; the number of rows averaged can shrink. |
-| A "needs review" flag built on `low` or `unknown` tier | Flags more rows. biomapper-ui's `services/mapper.py` builds `needsReview` this way, so its review count rises with no change in the answers. |
+| Mean or median score | Can move either way. Rows whose score dropped pull it down; rows whose score became blank leave the average, which raises it when their old scores were below it. The number of rows averaged can shrink. |
+| A "needs review" flag built on `low` or `unknown` tier | Flags the same rows or more, never fewer. biomapper-ui's `services/mapper.py` builds `needsReview` this way, so its review count can rise with no change in the answers. |
 | Sorting or filtering by score | Rows with a blank score move to wherever your sort puts blanks. |
 | Resolved, unresolved and error counts, resolution rate | Do not move. |
 
@@ -74,7 +74,7 @@ reused as before.
    annotators did not score, often one settled by a supplied identifier or by the resolver's
    source weighting. If a review flag counts `unknown` the same as `low`, expect the review count
    to rise, and consider separating the two.
-3. **Do not compare tier counts across the upgrade** as if the engine changed. A drop in `high`
-   between a 1.8.0 run and a 1.9.0 run of the same panel is this relabelling unless the
+3. **Do not compare tier counts or average scores across the upgrade** as if the engine changed.
+   A shift between a 1.8.0 run and a 1.9.0 run of the same panel is this relabelling unless the
    resolutions differ too.
 4. **Re-map cached panels** if you need scores for them.
