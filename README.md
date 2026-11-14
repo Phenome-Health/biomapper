@@ -565,8 +565,8 @@ def show(p: HarmonizeProgress) -> None:
 
 harmonize_cohorts(ukbb, arivale, entity="labs", a_label="ukbb", b_label="arivale",
                   on_progress=show)
-# names_only ukbb: 0/86
-# names_only ukbb: 10/86
+# names_only ukbb: 0/<rows>
+# names_only ukbb: 10/<rows>
 # ...
 ```
 
