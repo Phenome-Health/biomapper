@@ -25,6 +25,7 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from typing import Any
 
 from biomapper.harmonize.curies import (
     canonical_prefix,
@@ -50,6 +51,10 @@ class IdCheck:
     matched: tuple[str, ...] = ()
     reason: str | None = None
     rule: str = COMPARISON_RULE
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"status": self.status, "declared": list(self.declared),
+                "matched": list(self.matched), "reason": self.reason, "rule": self.rule}
 
 
 def _declared_curie(vocabulary: str, code: str) -> str | None:

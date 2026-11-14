@@ -138,9 +138,13 @@ async def test_the_stdio_server_starts_and_lists_its_tools(tmp_path: Path) -> No
     params = StdioServerParameters(command=sys.executable, args=["-m", "biomapper.mcp"], env=env)
     async with Client(params) as client:
         names = {t.name for t in (await client.list_tools()).tools}
-    assert {"map_entity", "map_batch", "map_file", "job_status", "resume_job", "cancel_job",
-            "list_entity_types", "list_vocabularies", "list_annotators", "server_info",
-            "get_candidates", "record_suggestion"} <= names
+    # 1.9.0: sixteen tools. Twelve from 1.8.0 plus the two harmonize submit tools and the two
+    # review-item readers. Exact, so a tool added or lost by accident fails here.
+    assert names == {"map_entity", "map_batch", "map_file", "job_status", "resume_job",
+                     "cancel_job", "list_entity_types", "list_vocabularies", "list_annotators",
+                     "server_info", "get_candidates", "record_suggestion",
+                     "harmonize_cohorts", "harmonize_many", "list_review_items",
+                     "get_review_item"}
 
 
 def test_pydantic_floor_supports_field_exclude_if() -> None:

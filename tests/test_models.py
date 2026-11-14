@@ -369,3 +369,115 @@ class TestDatasetMappingResult:
         with pytest.raises(BioMapperError):
             partial.raise_for_error()
         assert len(partial.results) == 1
+
+
+class TestConfidenceScoreIsChosenNodes:
+    """``confidence_score`` is the score of the node the resolver committed, not the best score
+    any annotator gave any node (Phenome-Health/biomapper2#155 looked like "engine score == twin
+    score" because the client reported the losing twin's score)."""
+
+    @staticmethod
+    def _twin_raw(chosen: str) -> RawApiResult:
+        # Prod shape for "4-pyridoxic acid": two RM nodes for one molecule. RefMet names the bare
+        # node (no score), kestrel scores the annotated twin.
+        return RawApiResult(
+            name="4-pyridoxic acid",
+            curies=["RM:0005375", "RM:0030084"],
+            primary_curie=chosen,
+            curies_assigned={
+                "metabolomics-workbench": ["RM:0030084"],
+                "kestrel-hybrid-search": ["RM:0005375"],
+            },
+            chosen_kg_id=chosen,
+            kg_ids={"RM:0005375": ["RM:0005375"], "RM:0030084": ["RM:0030084"]},
+            assigned_ids={
+                "metabolomics-workbench": {"refmet_id": {"RM0030084": {}}},
+                "kestrel-hybrid-search": {
+                    "RM": {"0005375": {"score": 5.082025687835493}}
+                },
+            },
+        )
+
+    def test_chosen_node_unscored_reports_none_not_twin_score(self) -> None:
+        result = MappingResult.from_batch_entry(self._twin_raw("RM:0030084"), query_name="x")
+
+        assert result.confidence_score is None
+        assert result.confidence_tier == "unknown"
+        assert result.max_annotator_score == pytest.approx(5.082025687835493)
+
+    def test_chosen_node_scored_reports_its_score(self) -> None:
+        result = MappingResult.from_batch_entry(self._twin_raw("RM:0005375"), query_name="x")
+
+        assert result.confidence_score == pytest.approx(5.082025687835493)
+        assert result.max_annotator_score == pytest.approx(5.082025687835493)
+
+    def test_lower_scored_chosen_node_wins_over_higher_scored_other_node(self) -> None:
+        raw = RawApiResult(
+            name="x",
+            curies=["CHEBI:1", "CHEBI:2"],
+            chosen_kg_id="CHEBI:1",
+            kg_ids={"CHEBI:1": ["CHEBI:1"], "CHEBI:2": ["CHEBI:2"]},
+            assigned_ids={
+                "kestrel-hybrid-search": {"CHEBI": {"1": {"score": 1.2}}},
+                "kestrel-vector-search": {"CHEBI": {"2": {"score": 3.4}}},
+            },
+        )
+        result = MappingResult.from_batch_entry(raw, query_name="x")
+
+        assert result.confidence_score == pytest.approx(1.2)
+        assert result.confidence_tier == "medium"
+        assert result.max_annotator_score == pytest.approx(3.4)
+
+    def test_best_score_among_annotators_that_hit_the_chosen_node(self) -> None:
+        raw = RawApiResult(
+            name="x",
+            curies=["CHEBI:1"],
+            chosen_kg_id="CHEBI:1",
+            kg_ids={"CHEBI:1": ["CHEBI:1"]},
+            assigned_ids={
+                "kestrel-hybrid-search": {"CHEBI": {"1": {"score": 1.2}}},
+                "kestrel-vector-search": {"CHEBI": {"1": {"score": 2.2}}},
+            },
+        )
+        assert MappingResult.from_batch_entry(raw, query_name="x").confidence_score == (
+            pytest.approx(2.2)
+        )
+
+    def test_scored_curie_that_canonicalizes_to_the_chosen_node_counts(self) -> None:
+        # The annotator scored HMDB:9, which kg_ids says lives on chosen node CHEBI:1.
+        raw = RawApiResult(
+            name="x",
+            curies=["CHEBI:1", "HMDB:9"],
+            chosen_kg_id="CHEBI:1",
+            kg_ids={"CHEBI:1": ["CHEBI:1", "HMDB:9"]},
+            assigned_ids={"kestrel-hybrid-search": {"HMDB": {"9": {"score": 2.5}}}},
+        )
+        assert MappingResult.from_batch_entry(raw, query_name="x").confidence_score == (
+            pytest.approx(2.5)
+        )
+
+    def test_no_kg_ids_matches_the_chosen_id_itself(self) -> None:
+        # Older server / trimmed payload: no kg_ids map, the chosen id is still its own CURIE.
+        raw = RawApiResult(
+            name="x",
+            curies=["CHEBI:1", "CHEBI:2"],
+            chosen_kg_id="CHEBI:1",
+            assigned_ids={
+                "kestrel-hybrid-search": {"CHEBI": {"1": {"score": 1.2}, "2": {"score": 3.4}}}
+            },
+        )
+        assert MappingResult.from_batch_entry(raw, query_name="x").confidence_score == (
+            pytest.approx(1.2)
+        )
+
+    def test_no_chosen_node_has_no_confidence_score(self) -> None:
+        raw = RawApiResult(
+            name="x",
+            curies=["CHEBI:2"],
+            chosen_kg_id=None,
+            assigned_ids={"kestrel-hybrid-search": {"CHEBI": {"2": {"score": 3.4}}}},
+        )
+        result = MappingResult.from_batch_entry(raw, query_name="x")
+
+        assert result.confidence_score is None
+        assert result.max_annotator_score == pytest.approx(3.4)

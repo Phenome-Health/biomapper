@@ -267,7 +267,13 @@ class MappingResult(BaseModel):
         chosen_kg_id_review: Review flag for source-weighted small-molecule ChEBI conflicts
             (``"divergent_refmet"`` or ``"conflict_no_structure"``); ``None`` when no review
             is warranted.
-        confidence_score: Highest confidence score found across annotators.
+        confidence_score: The score of ``chosen_kg_id``'s node: the best score an annotator gave
+            a CURIE that lives on the committed node. ``None`` when no annotator scored that node
+            (for example the node came from an unscored annotator such as RefMet, or from a
+            supplied identifier) or when no node was chosen.
+        max_annotator_score: The best score any annotator gave any node, whether or not the
+            resolver committed it (this was ``confidence_score`` through 1.8.0). Higher than
+            ``confidence_score`` when a different node outscored the chosen one.
         identifiers:      Vocabulary → list[id] mapping (e.g. ``{"CHEBI": ["15971"]}``).
         name_is_mixture:  The engine's mixture-label flag for this name: the top-level field if
             the server sends one, else ``lipid_resolution.name_is_mixture`` (engine v1.3.1+,
@@ -289,6 +295,7 @@ class MappingResult(BaseModel):
     chosen_kg_id: str | None = None
     chosen_kg_id_review: str | None = None
     confidence_score: float | None = None
+    max_annotator_score: float | None = None
     identifiers: dict[str, list[str]] = Field(default_factory=dict)
     kg_equivalent_ids: dict[str, list[str]] = Field(default_factory=dict)
     certificate: ResolutionCertificate | None = None
@@ -427,9 +434,18 @@ class MappingResult(BaseModel):
             else (r.lipid_resolution.name_is_mixture if r.lipid_resolution is not None else None)
         )
 
-        # Flatten assigned_ids → {vocab: [code, ...]} and extract best score
+        # Flatten assigned_ids → {vocab: [code, ...]} and extract the scores.
+        # confidence_score is the committed node's score: only a scored code whose CURIE lives on
+        # chosen_kg_id's node counts (kg_ids maps node → its CURIEs; the chosen id is always its
+        # own CURIE, which covers servers that omit kg_ids). The best score over every annotator
+        # and node is kept separately as max_annotator_score: when two nodes describe one
+        # molecule the higher score can belong to the node the resolver did not commit.
         identifiers: dict[str, list[str]] = {}
-        best_score: float | None = None
+        chosen_curies: set[str] = set()
+        if r.chosen_kg_id:
+            chosen_curies = {r.chosen_kg_id, *r.kg_ids.get(r.chosen_kg_id, [])}
+        chosen_score: float | None = None
+        max_score: float | None = None
 
         for _annotator, vocabs in r.assigned_ids.items():
             for vocab, codes in vocabs.items():
@@ -437,11 +453,16 @@ class MappingResult(BaseModel):
                     identifiers.setdefault(vocab, []).append(code)
                     if isinstance(meta, dict) and "score" in meta:
                         score = float(meta["score"])
-                        if best_score is None or score > best_score:
-                            best_score = score
+                        if max_score is None or score > max_score:
+                            max_score = score
+                        if f"{vocab}:{code}" in chosen_curies and (
+                            chosen_score is None or score > chosen_score
+                        ):
+                            chosen_score = score
 
         base["identifiers"] = identifiers
-        base["confidence_score"] = best_score
+        base["confidence_score"] = chosen_score
+        base["max_annotator_score"] = max_score
 
         return cls(**base)
 

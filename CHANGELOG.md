@@ -5,6 +5,98 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.9.0] - 2026-11-13
+
+### Changed
+
+- **`MappingResult.confidence_score` is now the score of the committed node.** It was the highest
+  score any annotator gave any node, so when two KG nodes described one molecule and the resolver
+  committed the lower-scored or unscored one, the client reported the other node's score
+  (Phenome-Health/biomapper2#155 read as "engine score == twin score" for this reason). Only a
+  scored code whose CURIE lives on `chosen_kg_id`'s node (per the response's `kg_ids`) now counts.
+  A row whose chosen node no annotator scored, or that has no chosen node, reports `None` and
+  `confidence_tier == "unknown"` (`not_scored` in the MCP server) where it could previously report
+  another node's tier. The MCP `confidence_score` / `confidence_tier` fields and the benchmark
+  mapper's `confidence_score` column follow. Results cached by an earlier client (resumable MCP
+  jobs, `harmonize_many` stores, benchmark arm caches) hold no raw response to recompute from, so
+  on load their stored score moves to `max_annotator_score` and their `confidence_score` reads
+  `None` rather than being reused under the new meaning; re-map to get the chosen node's score.
+  [docs/migration-1.9.0.md](docs/migration-1.9.0.md) says which displayed numbers move.
+- **`harmonize_cohorts()` and `harmonize_many()` reports gain a `name_linking` block** in
+  `settings.json` and `summary.json` (and so in the MCP job summary): whether name links were on,
+  the category that decided it, and the reason. Name linking still follows the category
+  (small molecules only) and has no override on these two functions; `harmonize()` keeps its
+  `link_by_name` argument. No linking rule changed.
+- **Both functions write one more file, `report.json`** (see Added). An MCP harmonize job
+  therefore refuses an `output_dir` that already holds a `report.json`.
+
+### Added
+
+- **`MappingResult.max_annotator_score`** carries the previous value: the best score any annotator
+  gave any node, whether or not the resolver committed it.
+- **Structured progress: `on_progress=`** on `harmonize_cohorts()` and `harmonize_many()`. The
+  callable receives a `HarmonizeProgress` (exported from `biomapper`) at the start of each arm
+  and after every batch: `function`, `arm`, `cohort`, `entities_done`, `entities_total`, with
+  `to_dict()`. `harmonize_cohorts()` reports per cohort; `harmonize_many()` maps each distinct
+  entity once for all cohorts, so its updates carry `cohort=None`, every label in `cohorts`, and
+  count distinct entities (reused saved mappings count as done). With a callback the mapper is
+  called once per batch instead of once per cohort; the requests sent are the same. A callback
+  that raises is reported once as a warning and the run continues. `progress=True` and
+  `on_message=` are unchanged.
+- **`biomapper.jobs.HarmonizeJobs`: resumable harmonization jobs outside MCP.** The MCP
+  server's job runner (gated mapper, per-job entity cache, staging and single placement, review
+  items) is now public API for any asyncio application: `submit_cohorts`, `submit_many`,
+  `status`, `list_jobs`, `wait`, `resume`, `cancel`, `load_report`, `review_items`,
+  `review_item`. A job killed mid-run is continued by the next process that opens the same
+  `home`; entities whose answers were saved are not mapped again. `on_progress` is delivered on
+  the caller's event loop as `(job_id, HarmonizeProgress)`, and the latest update is also on the
+  job's status (`progress`, a new optional field of the MCP `HarmonizeStatus` too). The MCP
+  server uses the same code path as before; importing `biomapper.jobs` does not import the MCP
+  SDK.
+- **Results as plain data.** `to_dict()` on `CohortHarmonizationReport`, `ManyCohortReport`,
+  `ArmReport`, `HarmonizationResult`, `Link`, `PossibleMiss`, `ReviewItem`, `ReviewCheck`,
+  `ArmDiff`, `GroupDiff`, `IdCheck` and the `biomapper.harmonize.nway` classes: JSON-safe, no
+  absolute paths, stable keys under `schema_version` 1. `report.write()` saves the report's as
+  `report.json`, and `biomapper.jobs.load_report(directory)` reads it back. In a report each
+  link carries both names and chosen nodes, and each arm lists unresolved and errored rows per
+  cohort with key and name.
+- **Harmonization through the MCP server.** Two new tools, `harmonize_cohorts` and
+  `harmonize_many`, run the Python functions of the same names, unchanged, as resumable
+  background jobs on the server's one worker: submit, `job_status`, `resume_job`, `cancel_job`.
+  The function runs on a worker thread with a gated `BatchedApiMapper` subclass, so every request
+  goes through the one request gate and `harmonize_many` still reuses the saved-mapping store
+  under the 1.8.0 rules. Each answered entity is also cached in the job's home, so a two-cohort
+  job and a run on an unknown KG build resume without re-mapping. The report is built in a
+  private staging folder and placed into `output_dir` once, at the end: owner-only, never through
+  a link, never over an existing report. For the same per-entity answers the report files equal
+  a direct Python API call apart from the mapper class name and timestamps. Differences from the
+  Python API, by design: a failed chunk is retried (the Python mapper returns errored rows), a
+  job that ends with errored rows is `partial` and terminal, and a `remap_all` job that is
+  interrupted and resumed finishes `iteration-grade` with a note saying why. Hard caps are
+  checked before anything is created (12 cohorts, 20,000 rows and 50 MB per file, 3 unfinished
+  jobs).
+- **Review items for a finished harmonize job.** `list_review_items` pages through one typed
+  list, largest impact first: a row item per weak entity (asked once however many rows share the
+  name) and a link item per link a person should look at (two-cohort review links; many-cohort
+  cross-node entries with two real nodes). `get_review_item` returns a link's evidence with both
+  sides together. Candidates for row items and knowledge-graph names for link nodes are captured
+  inside the job, capped and in impact order, so reading them makes no request and does not use
+  the interactive candidate budget; `get_candidates` returns a captured set at once
+  (`captured_utc`). `record_suggestion` now also takes a link item with `same`, `different` or
+  `cannot_tell`, and writes harmonize suggestions to `choices.tsv` in the job's `output_dir`.
+- **`harmonize_cohorts(pins=...)`** records an already-taken pin block instead of probing, as
+  `harmonize_many` does. **`on_message=`** on both functions and on both reports' `write()` routes
+  their stdout messages to a callable (default: print), for callers that own stdout.
+
+### Changed (MCP)
+
+- `resume_job` and `cancel_job` are declared to return the fields every job shares
+  (`job_id`, `state`, `reason`); the values they return for a `map_file` job are unchanged.
+  `job_status` lists harmonize jobs under a new `harmonize_jobs` key, which is absent when there
+  are none, so a file-job listing serializes as before.
+- Candidate results sanitize `query_name` (control characters stripped, capped at 120
+  characters), like every other piece of untrusted text they carry.
+
 ## [1.8.0] - 2026-11-10
 
 ### Added

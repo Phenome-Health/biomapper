@@ -50,24 +50,41 @@ CandidateStatus = Literal["present", "none_searched", "fetch_failed", "run_misma
 
 _INTERACTIVE = re.compile(r"ref-([0-9a-f]{32})")
 _JOB = re.compile(r"jref-([0-9a-f]{16})-([0-9a-f]{24})")
+# 1.9.0: a link review item of a harmonize job. Its record is an entry of the job's review
+# index (see biomapper.mcp.review_entries), not a RefRecord: a link has two sides and no query.
+_LINK = re.compile(r"lref-([0-9a-f]{16})-([0-9a-f]{24})")
 
 
 class RefError(Exception):
     """A ref that cannot be used: malformed, unknown, expired, or not this user's."""
 
 
-def parse_ref(ref_id: object) -> tuple[Literal["interactive", "job"], str | None]:
-    """``("interactive", None)`` or ``("job", job_id)``; :class:`RefError` for anything else."""
+def parse_ref(ref_id: object) -> tuple[Literal["interactive", "job", "link"], str | None]:
+    """``("interactive", None)``, ``("job", job_id)`` or ``("link", job_id)``.
+
+    :class:`RefError` for anything else. The format is checked before any path is built.
+    """
     if isinstance(ref_id, str):
         if _INTERACTIVE.fullmatch(ref_id):
             return "interactive", None
         match = _JOB.fullmatch(ref_id)
         if match:
             return "job", match.group(1)
+        match = _LINK.fullmatch(ref_id)
+        if match:
+            return "link", match.group(1)
     raise RefError(
         f"{str(ref_id)[:80]!r} is not a reference. Refs are issued by map_entity, map_batch and "
-        "map_file (weak.tsv) on weak rows; pass one exactly as returned."
+        "map_file (weak.tsv) on weak rows, and by list_review_items; pass one exactly as "
+        "returned."
     )
+
+
+def new_link_ref(job_id: str) -> str:
+    """A fresh, random link reference for ``job_id`` (a harmonize job's 16-hex id)."""
+    if not re.fullmatch(r"[0-9a-f]{16}", job_id):
+        raise RefError("a link ref needs the job's 16-hex id")
+    return f"lref-{job_id}-{secrets.token_hex(12)}"
 
 
 class RefQuery(BaseModel):
@@ -186,6 +203,11 @@ class RefStore:
         if kind == "job":
             assert job_id is not None
             return self.jobs_dir / job_id / "refs" / f"{ref_id}.json"
+        if kind == "link":
+            # No record lives here (the review index holds link entries); the path anchors a
+            # link's judgments directory inside its job, so they share the job's lifecycle.
+            assert job_id is not None
+            return self.jobs_dir / job_id / "links" / f"{ref_id}.json"
         return self.refs_dir / f"{ref_id}.json"
 
     def judgments_dir(self, ref_id: str) -> Path:
@@ -276,6 +298,12 @@ class RefStore:
 
     def load(self, ref_id: str) -> RefRecord:
         kind, _ = parse_ref(ref_id)
+        if kind == "link":
+            raise RefError(
+                f"{ref_id} is a link review item: it has two sides and evidence, not "
+                "candidates. Read it with get_review_item, and record same, different or "
+                "cannot_tell with record_suggestion."
+            )
         path = self.path_for(ref_id)
         try:
             st = os.lstat(path)

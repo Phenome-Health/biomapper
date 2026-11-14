@@ -38,13 +38,14 @@ import re
 import sys
 import warnings
 from collections import Counter
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
 
 from biomapper._pins import api_health, collect_pins
 from biomapper._provenance import DEFAULT_KESTREL_URL
+from biomapper._version import resolve_version
 from biomapper.client import DEFAULT_BASE_URL
 from biomapper.harmonize.curies import canonical_prefix, curie_set
 from biomapper.harmonize.linking import (
@@ -59,14 +60,19 @@ from biomapper.models import MappingResult
 
 __all__ = [
     "ENTITY_ALIASES",
+    "REPORT_FILENAME",
+    "REPORT_SCHEMA_VERSION",
     "REVIEW_STATUSES",
     "ArmDiff",
     "BatchedApiMapper",
     "CohortHarmonizationReport",
     "CohortRecord",
+    "HarmonizeProgress",
     "Mapper",
+    "ProgressCallback",
     "ReviewItem",
     "harmonize_cohorts",
+    "name_linking_info",
     "one_to_one",
 ]
 
@@ -107,6 +113,130 @@ _UNDERSCORE_SPLIT_VOCABS: frozenset[str] = frozenset({"UNIPROTKB", "UNIPROT"})
 _ARM_NAMES_ONLY = "names_only"
 _ARM_IDENTIFIER = "identifier"
 _ARM_REVIEW = "review"
+
+# The whole report as one JSON document, written beside the tables by ``report.write()``.
+REPORT_FILENAME = "report.json"
+# Version of the ``to_dict()`` / ``report.json`` layout. Keys are only ever added within a
+# version; a key that is renamed, removed or changes meaning raises this number.
+REPORT_SCHEMA_VERSION = 1
+
+
+def name_linking_info(category: str) -> dict[str, Any]:
+    """Whether name links are on for ``category``, and why, as plain data for a report.
+
+    Name linking (``harmonize(link_by_name=True)``) is decided by the resolved Biolink category
+    and cannot be overridden on :func:`harmonize_cohorts` or :func:`biomapper.harmonize_many`:
+    it is on for small molecules only. The offline :func:`biomapper.harmonize.harmonize` keeps
+    its explicit ``link_by_name`` argument for callers who link results themselves.
+    """
+    enabled = category in NAME_LINKING_CATEGORIES
+    allowed = sorted(NAME_LINKING_CATEGORIES)
+    if enabled:
+        reason = (
+            f"Name links are on because the category is {category}. Two resolved rows whose "
+            "names are equal (exactly, or ignoring case when both names are longer than "
+            "4 characters) are linked even when they resolved to different nodes, and each "
+            "such link says so in its basis (name_exact or name_casefold)."
+        )
+    else:
+        reason = (
+            f"Name links are off because the category is {category}. They are enabled for "
+            f"{', '.join(allowed)} only: for other entity types a case-insensitive name match "
+            "can join different entities (gene and protein symbols are case-sensitive), so "
+            "rows link by identifier only."
+        )
+    return {
+        "enabled": enabled,
+        "category": category,
+        "decided_by": "category",
+        "enabled_for_categories": allowed,
+        "overridable": False,
+        "reason": reason,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Progress
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class HarmonizeProgress:
+    """One structured progress update from a harmonize run (``on_progress=``).
+
+    ``function`` is ``"harmonize_cohorts"`` or ``"harmonize_many"``. ``arm`` is ``"names_only"``,
+    ``"identifier"`` or (two cohorts only) ``"review"``, the pass over one-sided codes.
+
+    :func:`harmonize_cohorts` maps one cohort at a time, so ``cohort`` is that cohort's label
+    and the counts are that cohort's requests in this arm. :func:`biomapper.harmonize_many`
+    maps each distinct entity once for all cohorts, so ``cohort`` is ``None``, ``cohorts`` names
+    every label, and the counts are the arm's distinct entities (saved mappings that were
+    reused count as done from the first update).
+
+    ``entities_done`` of ``entities_total`` have been answered, errored answers included. The
+    first update of each arm (and cohort) has the starting count, usually 0, and one more
+    follows each batch; a pass with nothing to map sends a single ``0 of 0`` update.
+    """
+
+    function: str
+    arm: str
+    cohort: str | None
+    entities_done: int
+    entities_total: int
+    cohorts: tuple[str, ...] = ()
+
+    def to_dict(self) -> dict[str, Any]:
+        """Plain JSON-safe data, for a status endpoint or a server-sent event."""
+        return {
+            "function": self.function,
+            "arm": self.arm,
+            "cohort": self.cohort,
+            "cohorts": list(self.cohorts),
+            "entities_done": self.entities_done,
+            "entities_total": self.entities_total,
+        }
+
+
+ProgressCallback = Callable[[HarmonizeProgress], None]
+
+
+class _ProgressReporter:
+    """Calls ``on_progress`` and never lets it stop the run.
+
+    Mapping is the expensive part, so a callback that raises is reported once as a warning and
+    not called again; the run continues.
+    """
+
+    def __init__(self, callback: ProgressCallback | None, function: str) -> None:
+        self._callback = callback
+        self._function = function
+        self.enabled = callback is not None
+
+    def __call__(
+        self, arm: str, cohort: str | None, done: int, total: int,
+        cohorts: Sequence[str] = (),
+    ) -> None:
+        if self._callback is None:
+            return
+        try:
+            self._callback(HarmonizeProgress(
+                function=self._function, arm=arm, cohort=cohort, entities_done=done,
+                entities_total=total, cohorts=tuple(cohorts),
+            ))
+        except Exception as exc:  # noqa: BLE001 — a progress display must not cost the run
+            self._callback = None
+            warnings.warn(
+                f"on_progress raised {type(exc).__name__}: {exc}. No further progress updates "
+                "are sent; the run continues.",
+                UserWarning,
+                stacklevel=2,
+            )
+
+    def batches(self, arm: str, cohort: str | None) -> Callable[[int, int], None] | None:
+        """A ``(done, total)`` hook for one arm and cohort, or ``None`` without a callback."""
+        if not self.enabled:
+            return None
+        return lambda done, total: self(arm, cohort, done, total)
 
 
 # ---------------------------------------------------------------------------
@@ -436,16 +566,54 @@ def _call_mapper(
     *,
     entity_type: str,
     annotation_mode: str,
+    batch_size: int = DEFAULT_BATCH_SIZE,
+    on_batch: Callable[[int, int], None] | None = None,
 ) -> list[MappingResult]:
+    """Map ``requests`` and check the mapper returned one result per request.
+
+    Without ``on_batch`` the mapper gets every request in one call, as it always has. With it,
+    the mapper is called once per ``batch_size`` requests so that ``on_batch(done, total)`` can
+    report after each batch; the default mapper splits into the same batches itself, so what is
+    sent to the API does not change.
+    """
+    total = len(requests)
+    if on_batch is not None:
+        on_batch(0, total)
     if not requests:
         return []
-    results = list(mapper(requests, entity_type=entity_type, annotation_mode=annotation_mode))
-    if len(results) != len(requests):
-        raise RuntimeError(
-            f"mapper returned {len(results)} results for {len(requests)} requests; a mapper must "
-            "return one result per request, in order"
-        )
+    step = total if on_batch is None else max(batch_size, 1)
+    results: list[MappingResult] = []
+    for start in range(0, total, step):
+        chunk = requests[start : start + step]
+        got = list(mapper(chunk, entity_type=entity_type, annotation_mode=annotation_mode))
+        if len(got) != len(chunk):
+            raise RuntimeError(
+                f"mapper returned {len(got)} results for {len(chunk)} requests; a mapper must "
+                "return one result per request, in order"
+            )
+        results.extend(got)
+        if on_batch is not None:
+            on_batch(len(results), total)
     return results
+
+
+def _mapping_row(
+    record: CohortRecord, sent: Mapping[str, Sequence[str]], result: MappingResult
+) -> dict[str, Any]:
+    """One input row and its mapping, as plain data (the ``mapping_*.tsv`` columns and more)."""
+    return {
+        "key": record.key,
+        "name": record.name,
+        "row": record.row,
+        "declared_identifiers": {v: list(codes) for v, codes in record.identifiers.items()},
+        "identifiers_sent": {v: list(codes) for v, codes in sent.items()},
+        "chosen_kg_id": result.chosen_kg_id,
+        "resolved": bool(curie_set(result.chosen_kg_id, result.kg_equivalent_ids)),
+        "error": result.error,
+        "kg_equivalent_ids": {v: list(c) for v, c in (result.kg_equivalent_ids or {}).items()},
+        "confidence_score": result.confidence_score,
+        "confidence_tier": result.confidence_tier,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -466,6 +634,19 @@ class ReviewItem:
     code_entry: str | None
     status: str
 
+    def to_dict(self) -> dict[str, Any]:
+        """Plain JSON-safe data. ``status`` is one of :data:`REVIEW_STATUSES`."""
+        return {
+            "cohort": self.cohort,
+            "key": self.key,
+            "name": self.name,
+            "vocabulary": self.vocabulary,
+            "code": self.code,
+            "name_entry": self.name_entry,
+            "code_entry": self.code_entry,
+            "status": self.status,
+        }
+
 
 @dataclass(frozen=True)
 class ArmDiff:
@@ -480,6 +661,18 @@ class ArmDiff:
             "names_only_only": len(self.names_only_only),
             "identifier_only": len(self.identifier_only),
             "both": len(self.both),
+        }
+
+    def to_dict(self) -> dict[str, Any]:
+        """Plain JSON-safe data: the counts, and each set as ``{"a_key", "b_key"}`` pairs."""
+        def pairs(items: tuple[tuple[str, str], ...]) -> list[dict[str, str]]:
+            return [{"a_key": a, "b_key": b} for a, b in items]
+
+        return {
+            "counts": self.counts(),
+            "names_only_only": pairs(self.names_only_only),
+            "identifier_only": pairs(self.identifier_only),
+            "both": pairs(self.both),
         }
 
 
@@ -630,6 +823,7 @@ class CohortHarmonizationReport:
             "entity": self.settings["entity"],
             "category": self.category,
             "link_by_name": self.settings["link_by_name"],
+            "name_linking": name_linking_info(self.category),
             "labels": {"a": self.a_label, "b": self.b_label},
             "vocabularies": {
                 "shared": list(self.settings["vocabularies"]["shared"]),
@@ -648,6 +842,96 @@ class CohortHarmonizationReport:
                 "n_listed": len(self.review_queue),
             },
             "excluded": {label: len(rows) for label, rows in self.excluded.items()},
+            "warnings": list(self.warnings),
+            "pins": self.pins,
+        }
+
+    def _arm_dict(self, arm: str, result: HarmonizationResult) -> dict[str, Any]:
+        """One arm's result as plain data, with each key's name and chosen node filled in."""
+        rows = {
+            label: {rec.key: (rec, res) for rec, _sent, res in by_row}
+            for label, by_row in self.mappings.get(arm, {}).items()
+        }
+
+        def side(label: str, key: str) -> tuple[str | None, str | None]:
+            hit = rows.get(label, {}).get(key)
+            return (hit[0].name, hit[1].chosen_kg_id) if hit is not None else (None, None)
+
+        def named(label: str, keys: Iterable[str]) -> list[dict[str, Any]]:
+            return [{"key": k, "name": side(label, k)[0]} for k in keys]
+
+        out = result.to_dict()
+        for link in out["links"]:
+            link["a_name"], link["a_chosen_kg_id"] = side(self.a_label, link["a_key"])
+            link["b_name"], link["b_chosen_kg_id"] = side(self.b_label, link["b_key"])
+        for pair in out["name_match_withheld"]:
+            pair["a_name"] = side(self.a_label, pair["a_key"])[0]
+            pair["b_name"] = side(self.b_label, pair["b_key"])[0]
+        out["unresolved_rows"] = {
+            self.a_label: named(self.a_label, result.a_unresolved),
+            self.b_label: named(self.b_label, result.b_unresolved),
+        }
+        out["errored_rows"] = {
+            self.a_label: named(self.a_label, result.a_errors),
+            self.b_label: named(self.b_label, result.b_errors),
+        }
+        return out
+
+    def to_dict(self) -> dict[str, Any]:
+        """The whole report as plain JSON-safe data: what ``report.json`` holds.
+
+        Top-level keys (``schema_version`` :data:`REPORT_SCHEMA_VERSION`; keys are only added
+        within a version):
+
+        - ``kind`` (``"harmonize_cohorts"``), ``biomapper_version``, ``entity``, ``category``,
+          ``labels`` (``{"a", "b"}``), ``settings``, ``summary`` (:meth:`summary`), ``pins``,
+          ``warnings``.
+        - ``name_linking``: whether name links were on and why (:func:`name_linking_info`).
+        - ``arms``: ``names_only`` and ``identifier`` (``None`` when skipped, see
+          ``identifier_skipped_reason``). Each is
+          :meth:`biomapper.harmonize.HarmonizationResult.to_dict` with names added: ``links``
+          (every link with its basis, partner counts and review flags; ``ambiguous`` marks the
+          ambiguous ones, ``one_to_one`` the rest), ``name_match_withheld``, ``unresolved`` and
+          ``errors`` (keys per cohort), ``unresolved_rows`` and ``errored_rows`` (key and name
+          per cohort) and ``possible_missed``.
+        - ``diff``: linked pairs by which arm found them, or ``None``.
+        - ``review``: every one-sided code check; ``review_queue``: those a person should look
+          at (every status but ``agree``).
+        - ``mappings``: ``{arm: {cohort: [row, ...]}}`` for ``names_only``, ``identifier`` and
+          ``review``: each input row with what was sent and what it resolved to.
+        - ``excluded``: rows left out of each cohort (blank names), with the reason.
+
+        No absolute path appears in it. ``json.dumps`` takes the result as is.
+        """
+        return {
+            "schema_version": REPORT_SCHEMA_VERSION,
+            "kind": "harmonize_cohorts",
+            "biomapper_version": resolve_version(),
+            "entity": self.settings["entity"],
+            "category": self.category,
+            "labels": {"a": self.a_label, "b": self.b_label},
+            "name_linking": name_linking_info(self.category),
+            "settings": self.settings,
+            "summary": self.summary(),
+            "arms": {
+                _ARM_NAMES_ONLY: self._arm_dict(_ARM_NAMES_ONLY, self.names_only),
+                _ARM_IDENTIFIER: (
+                    self._arm_dict(_ARM_IDENTIFIER, self.identifier)
+                    if self.identifier is not None else None
+                ),
+            },
+            "identifier_skipped_reason": self.identifier_skipped_reason,
+            "diff": self.diff.to_dict() if self.diff is not None else None,
+            "review": [i.to_dict() for i in self.review],
+            "review_queue": [i.to_dict() for i in self.review_queue],
+            "mappings": {
+                arm: {
+                    label: [_mapping_row(rec, sent, res) for rec, sent, res in rows]
+                    for label, rows in by_label.items()
+                }
+                for arm, by_label in self.mappings.items()
+            },
+            "excluded": {label: [dict(r) for r in rows] for label, rows in self.excluded.items()},
             "warnings": list(self.warnings),
             "pins": self.pins,
         }
@@ -693,11 +977,19 @@ class CohortHarmonizationReport:
             ),
         )
 
-    def write(self, path: str | os.PathLike[str] | None = None) -> Path:
-        """Write every table and the summary; return the directory.
+    def write(
+        self,
+        path: str | os.PathLike[str] | None = None,
+        *,
+        on_message: Callable[[str], None] | None = None,
+    ) -> Path:
+        """Write every table, the summary and ``report.json`` (:meth:`to_dict`); return the
+        directory.
 
         ``path`` defaults to this report's ``output_dir``, or a new
         ``biomapper_runs/harmonize_cohorts_<UTC timestamp>/`` under the current directory.
+        ``on_message`` receives the "wrote results" message instead of stdout (see
+        :func:`harmonize_cohorts`).
         """
         if path is not None:
             directory = Path(path).resolve()
@@ -740,8 +1032,11 @@ class CohortHarmonizationReport:
         (directory / "summary.json").write_text(
             json.dumps(self.summary(), indent=1, sort_keys=True) + "\n"
         )
+        (directory / REPORT_FILENAME).write_text(
+            json.dumps(self.to_dict(), indent=1, sort_keys=True) + "\n"
+        )
         self.output_dir = directory
-        print(f"harmonize_cohorts: wrote results to {directory}")
+        (on_message or print)(f"harmonize_cohorts: wrote results to {directory}")
         return directory
 
 
@@ -798,8 +1093,11 @@ def harmonize_cohorts(
     api_key: str | None = None,
     kestrel_url: str = DEFAULT_KESTREL_URL,
     probe_pins: bool = True,
+    pins: Mapping[str, Any] | None = None,
     output_dir: str | os.PathLike[str] | None = None,
     save: bool = True,
+    on_message: Callable[[str], None] | None = None,
+    on_progress: ProgressCallback | None = None,
 ) -> CohortHarmonizationReport:
     """Harmonize two cohort tables with the names-first protocol, and report both arms.
 
@@ -824,9 +1122,22 @@ def harmonize_cohorts(
         base_url, api_key: Passed to the default mapper and the API health pin.
         kestrel_url: The Kestrel root whose ``/health`` pins the KG build (recorded).
         probe_pins: Read the API and Kestrel ``/health`` endpoints for the pins (default True).
+        pins: An already-taken pin block (``{"kestrel": {"kg_build": ...}, ...}``) recorded
+            instead of probing, as in :func:`biomapper.harmonize_many`. When given, no ``/health``
+            request is made.
         output_dir: Where to write; default ``biomapper_runs/harmonize_cohorts_<UTC stamp>/``.
         save: Write results (default True). Each arm is written as soon as it completes, so a
             failure keeps finished work; ``report.write()`` can always be called later.
+        on_message: A callable that receives the messages this function would print to stdout
+            (the "wrote results" line). Default: print them. A caller that owns stdout, such as
+            the MCP server's stdio transport, passes one. Progress lines (``progress=True``) and
+            warnings go to stderr and are not routed.
+        on_progress: A callable that receives a :class:`HarmonizeProgress` at the start of each
+            arm and cohort and after every batch of ``batch_size`` requests: the cohort label,
+            the arm, and how many of that pass's requests are answered. It runs on the calling
+            thread, between requests, so keep it quick. If it raises, a warning is issued once,
+            it is not called again and the run continues. With a callback the mapper is called
+            once per batch instead of once per cohort; the requests sent are the same.
 
     Returns:
         A :class:`CohortHarmonizationReport`.
@@ -837,6 +1148,7 @@ def harmonize_cohorts(
     _require_cohort_labels(a_label, b_label)
     resolved_category = resolve_category(entity, category)
     link_by_name = resolved_category in NAME_LINKING_CATEGORIES
+    report_progress = _ProgressReporter(on_progress, "harmonize_cohorts")
     cohort_a = read_cohort(
         a, label=a_label, name_column=a_name_column, vocabularies=a_vocabularies,
         key_column=a_key_column,
@@ -897,6 +1209,8 @@ def harmonize_cohorts(
             [{"name": r.name, "identifiers": {}} for r in cohort.records],
             entity_type=resolved_category,
             annotation_mode="missing",
+            batch_size=batch_size,
+            on_batch=report_progress.batches(_ARM_NAMES_ONLY, cohort.label),
         )
         names_results[cohort.label] = results
         persist(_ARM_NAMES_ONLY, cohort.label,
@@ -950,6 +1264,8 @@ def harmonize_cohorts(
                 [{"name": cohort.records[i].name, "identifiers": sent_ids[i]} for i in coded],
                 entity_type=resolved_category,
                 annotation_mode="missing",
+                batch_size=batch_size,
+                on_batch=report_progress.batches(_ARM_IDENTIFIER, cohort.label),
             )
             merged = list(names_results[cohort.label])
             for i, res in zip(coded, remapped, strict=True):
@@ -980,6 +1296,8 @@ def harmonize_cohorts(
             [{"name": cohort.records[i].name, "identifiers": {v: [code]}} for i, v, code in jobs],
             entity_type=resolved_category,
             annotation_mode="none",
+            batch_size=batch_size,
+            on_batch=report_progress.batches(_ARM_REVIEW, cohort.label),
         )
         rows = []
         for (i, v, code), res in zip(jobs, code_results, strict=True):
@@ -999,6 +1317,7 @@ def harmonize_cohorts(
         "category_overridden": category is not None,
         "aliases": dict(ENTITY_ALIASES),
         "link_by_name": link_by_name,
+        "name_linking": name_linking_info(resolved_category),
         "labels": {"a": a_label, "b": b_label},
         "cohorts": {
             c.label: {
@@ -1030,14 +1349,19 @@ def harmonize_cohorts(
         diff=compute_diff(names_only.links, identifier.links) if identifier is not None else None,
         review=tuple(review),
         warnings=tuple(run_warnings),
-        pins=_collect_pins(
-            probe=probe_pins, base_url=api_base, api_key=api_key, kestrel_url=kestrel_url,
-            mapper=the_mapper,
+        pins=(
+            {**dict(pins), "mapper": type(the_mapper).__name__,
+             "mapper_pins": getattr(the_mapper, "pins", None)}
+            if pins is not None
+            else _collect_pins(
+                probe=probe_pins, base_url=api_base, api_key=api_key, kestrel_url=kestrel_url,
+                mapper=the_mapper,
+            )
         ),
         excluded={c.label: c.excluded for c in cohorts},
         mappings=mappings,
         output_dir=directory,
     )
     if directory is not None:
-        report.write(directory)
+        report.write(directory, on_message=on_message)
     return report

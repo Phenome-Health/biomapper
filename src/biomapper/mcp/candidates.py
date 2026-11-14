@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import re
 import unicodedata
 from typing import Any, Literal
@@ -34,9 +35,19 @@ from biomapper.exceptions import (
     BioMapperServerError,
     BioMapperTimeoutError,
 )
-from biomapper.mcp.references import CandidateItem, CandidateStatus, RefEngine, RefRecord
-from biomapper.mcp.tools import Provenance, entity_status
+from biomapper.mcp.references import (
+    CandidateItem,
+    CandidateSet,
+    CandidateStatus,
+    RefEngine,
+    RefError,
+    RefRecord,
+    RefStore,
+)
+from biomapper.mcp.tools import Provenance, entity_status, weak_trigger
 from biomapper.models import MappingResult
+
+logger = logging.getLogger("biomapper.mcp.candidates")
 
 MAX_TEXT = 120
 MAX_SYNONYMS = 3
@@ -55,7 +66,11 @@ GET_CANDIDATES_DESCRIPTION = (
     "Each ref returns a status: present, none_searched, fetch_failed (with a reason), or "
     "run_mismatch (the KG build or the engine's choice changed since the ref was issued; use "
     "superseding_ref, whose candidates are returned, to continue). Record a pick with "
-    "record_suggestion."
+    "record_suggestion. For a harmonize job's ROW review items (list_review_items) the "
+    "candidates were usually captured inside the job: those are returned at once with "
+    "captured_utc set, with no new request and nothing charged to the budget; an item whose "
+    "evidence reads not_captured or fetch_failed is fetched now, under the budget. A link "
+    "review item has no candidates: use get_review_item."
 )
 
 CANDIDATES_NOTE = (
@@ -79,6 +94,19 @@ class RefCandidates(BaseModel):
         default=None,
         description="On run_mismatch: a new ref anchored to the re-map. The candidates returned "
         "belong to it; the original ref is unchanged.",
+    )
+    # 1.9.0, harmonize jobs only. Absent otherwise, so a 1.7.0 result serializes unchanged.
+    captured_utc: str | None = Field(
+        default=None,
+        exclude_if=lambda v: v is None,
+        description="Set when these candidates were captured inside the harmonize job: no new "
+        "request was made and nothing was charged to the candidate budget.",
+    )
+    followed_from: str | None = Field(
+        default=None,
+        exclude_if=lambda v: v is None,
+        description="The ref that was asked for, when it was superseded by a run mismatch at "
+        "capture and this result belongs to its replacement (the ref field).",
     )
 
 
@@ -281,3 +309,88 @@ def remap_error(result: MappingResult) -> str | None:
     if entity_status(result) != "error":
         return None
     return reason_for_row_error(result.error or "")
+
+
+# ---------------------------------------------------------------------------
+# Storing a fetch on its ref (shared by get_candidates and the harmonize capture stage)
+# ---------------------------------------------------------------------------
+
+
+def store_set(refs: RefStore, record: RefRecord, cset: CandidateSet) -> None:
+    """Store a fetched set on the ref, merged into its latest copy on disk under its lock."""
+
+    def put(fresh: RefRecord) -> None:
+        if fresh.candidates is not None:
+            fresh.candidate_history.append(fresh.candidates)
+        fresh.candidates = cset
+
+    try:
+        refs.update(record.ref_id, put)
+    except OSError:
+        logger.warning("could not store candidates on %s", record.ref_id, exc_info=True)
+
+
+def finish_ref(
+    refs: RefStore,
+    now_utc: str,
+    record: RefRecord,
+    result: MappingResult | None,
+    reason: str | None,
+    n: int,
+    build: str,
+) -> RefCandidates:
+    """Turn one re-map outcome into the ref's status, and store what was fetched on the ref."""
+    out = RefCandidates(
+        ref=record.ref_id,
+        query_name=sanitize(record.query.name),
+        weak_trigger=record.weak_trigger,
+        engine_choice=record.engine_choice,
+        certificate_state=record.engine.certificate_state,
+        status="fetch_failed",
+        reason=reason,
+        n=n,
+    )
+    row_error = None if result is None else remap_error(result)
+    if result is None or row_error is not None:
+        out.reason = reason if result is None else row_error
+        store_set(refs, record, CandidateSet(status="fetch_failed", reason=out.reason, n=n,
+                                             fetched_utc=now_utc))
+        return out
+    mismatch = verify(record, result, build)
+    if mismatch is not None:
+        # Anchor a fresh ref to the re-map so the agent can carry on deliberately. The original
+        # keeps its engine answer; its stored set is marked unusable.
+        status, why, items, raw = compact(result, RefEngine.of(result), n=n)
+        out.status, out.reason = "run_mismatch", mismatch
+        store_set(refs, record, CandidateSet(status="run_mismatch", reason=mismatch, n=n,
+                                             fetched_utc=now_utc, raw_sha256=raw))
+        try:
+            new = refs.issue(
+                source=record.source,
+                job_id=record.job_id,
+                row_key=record.row_key,
+                query=record.query.model_dump(),
+                result=result,
+                weak_trigger=weak_trigger(result, record.query.entity_type),
+                kg_build=build,
+                supersedes=record.ref_id,
+            )
+        except (OSError, RefError):
+            logger.warning("could not issue a superseding ref", exc_info=True)
+            return out
+        store_set(refs, new, CandidateSet(status=status, reason=why, n=n, fetched_utc=now_utc,
+                                          raw_sha256=raw, items=items))
+        record.superseded_by = new.ref_id
+        try:
+            refs.update(record.ref_id, lambda fresh: setattr(fresh, "superseded_by",
+                                                            new.ref_id))
+        except OSError:
+            logger.warning("could not link %s to its successor", record.ref_id, exc_info=True)
+        out.superseding_ref = new.ref_id
+        out.candidates = items
+        return out
+    status, why, items, raw = compact(result, record.engine, n=n)
+    out.status, out.reason, out.candidates = status, why, items
+    store_set(refs, record, CandidateSet(status=status, reason=why, n=n, fetched_utc=now_utc,
+                                         raw_sha256=raw, items=items))
+    return out

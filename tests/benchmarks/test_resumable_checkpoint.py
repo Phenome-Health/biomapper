@@ -379,3 +379,41 @@ def test_a_version_without_a_kg_commit_gets_no_cache(tmp_path):
     provenance.kg_build.git_commit = "unknown"
     assert provenance.pinned  # the case: versions known, commit not
     assert _resume_cache(tmp_path, provenance, entity_type="metabolite") is None
+
+
+def test_an_entry_cached_under_the_old_score_meaning_is_migrated_not_reused(tmp_path):
+    """Through 1.8.0 ``confidence_score`` was the max over every node; the cache has no raw
+    response to recompute the chosen node's score from, so an old entry's value moves to
+    ``max_annotator_score`` and its ``confidence_score`` reads unknown."""
+    key = cache_key("glucose", "CHEBI", OPTS)
+    old = _answer("glucose", "CHEBI").model_dump(mode="json", exclude={"raw_response"})
+    del old["max_annotator_score"]  # the field did not exist when this entry was written
+    old["confidence_score"] = 5.08
+    path = tmp_path / CACHE_FILENAME
+    path.write_text(
+        json.dumps({"type": "pin", "pin": PIN}) + "\n"
+        + json.dumps({"type": "batch", "entries": [{"key": key, "result": old}]}) + "\n"
+    )
+
+    hit = EntityCache(tmp_path, PIN).get(key)
+
+    assert hit is not None
+    assert hit.confidence_score is None
+    assert hit.confidence_tier == "unknown"
+    assert hit.max_annotator_score == pytest.approx(5.08)
+
+
+def test_an_entry_cached_under_the_new_score_meaning_round_trips(tmp_path):
+    key = cache_key("glucose", "CHEBI", OPTS)
+    answer = _answer("glucose", "CHEBI").model_copy(
+        update={"confidence_score": 1.2, "max_annotator_score": 3.4}
+    )
+    EntityCache(tmp_path, PIN).commit_batch(
+        vocab="CHEBI", batch_index=0, keyed_results=[(key, answer)]
+    )
+
+    hit = EntityCache(tmp_path, PIN).get(key)
+
+    assert hit is not None
+    assert hit.confidence_score == pytest.approx(1.2)
+    assert hit.max_annotator_score == pytest.approx(3.4)

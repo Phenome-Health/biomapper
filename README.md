@@ -503,6 +503,10 @@ What it does:
    identifiers. `entity` takes `metabolites` (SmallMolecule), `proteins` (Protein), `genes` (Gene),
    `labs` (ClinicalMeasurement, where lab tests live in Biolink) or any raw `biolink:` category;
    `category=` overrides an alias. Name linking is on for SmallMolecule only, as in `harmonize()`.
+   It follows the category and has no override here (gene and protein symbols are
+   case-sensitive, so a case-insensitive name match can join different entities); the report
+   says whether it was on and why (`name_linking` in `settings.json`, `summary.json` and
+   `report.json`).
 2. **Identifier arm, shared vocabularies only.** You declare identifier columns per vocabulary
    and cohort (`{"LOINC": [...]}`); names are normalized, so `KEGG.COMPOUND` equals `KEGG`. Only
    vocabularies **both** cohorts declare are supplied as mapping input, and only rows carrying
@@ -530,8 +534,9 @@ under the current directory (override with `output_dir=`; `save=False` to skip;
 `report.write(path)` any time): mapping results per arm and cohort, written as each arm finishes
 so a failure keeps finished work, link and possible-missed tables per arm, `diff.tsv`,
 `review_queue.tsv`,
-`settings.json` and `summary.json`. Nothing beyond what you passed in is written, and input files
-are recorded by name and SHA-256, never by absolute path.
+`settings.json`, `summary.json` and `report.json` (the whole report as one JSON document, see
+[Results as plain data](#results-as-plain-data)). Nothing beyond what you passed in is written,
+and input files are recorded by name and SHA-256, never by absolute path.
 
 **Pins.** The package version; the API's `/health` status and self-reported version (labelled
 "self-reported, known stale": the API does not expose its engine release, which is recorded as
@@ -544,6 +549,26 @@ not an exception. Pass `mapper=` (any `(records, *, entity_type, annotation_mode
 list[MappingResult]` callable) to replay recorded results offline; the tests replay the UK Biobank
 x Arivale labs this way (`tests/fixtures/cohorts_labs_cm/`, KRAKEN kg 2.3.0 / 3dd08a5b: 37 pairs,
 21 one-to-one by name).
+
+**Progress as data.** `on_progress=` takes a callable that receives a `HarmonizeProgress` at the
+start of each arm and cohort and after every batch: `function`, `arm` (`names_only`,
+`identifier` or `review`), `cohort`, `entities_done`, `entities_total`; `to_dict()` gives plain
+data. It is the hook for a web backend; `progress=True` (stderr lines) and `on_message=` (the
+"wrote results" line) work as before beside it. A callback that raises is reported once as a
+warning and the run continues.
+
+```python
+from biomapper import HarmonizeProgress, harmonize_cohorts
+
+def show(p: HarmonizeProgress) -> None:
+    print(f"{p.arm} {p.cohort}: {p.entities_done}/{p.entities_total}")
+
+harmonize_cohorts(ukbb, arivale, entity="labs", a_label="ukbb", b_label="arivale",
+                  on_progress=show)
+# names_only ukbb: 0/<rows>
+# names_only ukbb: 10/<rows>
+# ...
+```
 
 ### Harmonizing more than two cohorts: `harmonize_many()`
 
@@ -653,12 +678,100 @@ one KG build. **Numbers you publish should come from a `remap_all=True` run**, w
 **Output by default** goes to `biomapper_runs/harmonize_many_<UTC stamp>/` (`output_dir=`,
 `save=False`, `report.write(path)` as for `harmonize_cohorts()`), with per-cohort provenance
 (`provenance_<arm>_<label>.json`: session id, request checksum, file SHA-256, reused and fresh
-counts), the pins, `settings.json` and `summary.json`. No absolute path is written to JSON.
+counts), the pins, `settings.json`, `summary.json` and `report.json`. No absolute path is written
+to JSON.
+
+**Progress as data.** `on_progress=` works as for `harmonize_cohorts()`, with one difference:
+each distinct entity is mapped once for all cohorts, so an update's `cohort` is `None`,
+`cohorts` names every label, and the counts are the arm's distinct entities. Saved mappings that
+are reused count as done from the first update.
 
 The split-recall gate (`scripts/harmonize_many_split_recall.py`) measures, on a NECS x Arivale
 answer key built from curated HMDB identifiers rather than names, how many true matches land in a
 node group, in the cross-node queue, or in neither, reported separately for pairs whose names
 differ. It is a live run the operator starts.
+
+### Results as plain data
+
+Every result class has a `to_dict()` that returns plain JSON-safe data (`json.dumps` takes it as
+is), and `report.write()` saves the report's as `report.json` beside the tables. The keys are
+stable: `schema_version` (currently 1) is raised if one is ever renamed or removed, and new keys
+may be added without raising it.
+
+| Call | What it holds |
+|---|---|
+| `CohortHarmonizationReport.to_dict()` | `kind`, `labels`, `category`, `name_linking`, `settings`, `summary`, `pins`, `warnings`, `excluded`; `arms.names_only` and `arms.identifier` (`None` when skipped, with `identifier_skipped_reason`); `diff`; `review` and `review_queue`; `mappings` per arm and cohort |
+| `ManyCohortReport.to_dict()` | the same header plus `status` and `grade`; `arms.<name>` with `groups`, `rows`, `not_grouped`, `cross_node`, `cross_node_pairs`, `withheld`, `pair_counts`, `id_check_review`, `mappings`; `diff`; `store` and `mapping` (reused, fresh and errored counts) |
+| `HarmonizationResult.to_dict()` | `links`, `name_match_withheld`, `unresolved` and `errors` per cohort, `possible_missed`, `summary` |
+| `Link.to_dict()` | keys, `basis`, `bases`, `shared_identifiers`, partner counts, `one_to_one`, `ambiguous`, the confidence-marker and mixture fields, `needs_review`, `review_reasons` |
+| `ReviewItem.to_dict()`, `ReviewCheck.to_dict()`, `PossibleMiss.to_dict()` | one review row each |
+| `biomapper.jobs.load_report(directory)` | reads `report.json` back as a dict |
+
+In a report, each link also carries both names and both chosen nodes (`a_name`, `b_name`,
+`a_chosen_kg_id`, `b_chosen_kg_id`), and each arm lists `unresolved_rows` and `errored_rows` per
+cohort with key and name, so a table can be exported without joining. Ambiguous links are the
+links with `ambiguous: true`; one-to-one links have `one_to_one: true`. `name_linking` says
+whether name links were on and why (`enabled`, `category`, `reason`). A saved `harmonize_many`
+run streams its cross-node row pairs to `cross_node_pairs_<arm>.tsv` instead of holding them in
+memory; `report.json` then has `cross_node_pairs: null` and names the file in
+`cross_node_pairs_file`.
+
+### Resumable jobs from your own application
+
+A harmonization maps every entity at about 4 to 5 seconds each, so a real run is a long
+background job. `biomapper.jobs.HarmonizeJobs` runs `harmonize_cohorts()` or `harmonize_many()`
+as one, from any asyncio application. It is the job runner the MCP server uses, without the MCP
+client: a job killed mid-run is continued by the next process that opens the same `home`, and no
+entity whose answer was saved is mapped again (at most the one batch in flight at the kill is
+sent a second time).
+
+```python
+from biomapper.jobs import CohortSpec, HarmonizeJobs
+
+async with HarmonizeJobs(
+    home="/var/lib/myapp/biomapper",          # job records, caches, review evidence
+    roots=["/var/lib/myapp/runs"],            # the only folders jobs may read and write
+    on_progress=lambda job_id, p: publish(job_id, p.to_dict()),
+) as jobs:
+    job = await jobs.submit_many(
+        [CohortSpec(label="a", path="/var/lib/myapp/runs/42/a.tsv"),
+         CohortSpec(label="b", path="/var/lib/myapp/runs/42/b.tsv",
+                    vocabularies={"HMDB": ["hmdb_id"]}),
+         CohortSpec(label="c", path="/var/lib/myapp/runs/42/c.tsv")],
+        entity="metabolites",
+        output_dir="/var/lib/myapp/runs/42/report",
+        store_dir="/var/lib/myapp/runs/42/store",   # per user or per job, not shared
+    )
+    status = await jobs.status(job.job_id)          # state, stage, progress, eta_s
+    done = await jobs.wait(job.job_id)
+    report = jobs.load_report(job.job_id)           # the whole report as a dict
+    page = jobs.review_items(job.job_id)            # weak rows and links to look at
+```
+
+| Method | What it does |
+|---|---|
+| `submit_cohorts(a, b, *, entity, category=None, output_dir=None)` | Queue a two-cohort job |
+| `submit_many(cohorts, *, entity, category=None, output_dir=None, store_dir=None, remap_all=False)` | Queue a job over two or more cohorts |
+| `status(job_id)`, `list_jobs()` | `HarmonizeStatus`: `state`, `stage`, `entities_mapped` / `entities_total`, `progress` (the latest per-arm update), `eta_s`, `summary` and `review_items` once finished |
+| `wait(job_id, *, poll_s=1.0, timeout_s=None)` | Poll until the job is no longer queued or running |
+| `resume(job_id)`, `cancel(job_id)` | Continue a stalled, paused, expired or cancelled job; stop one after its current batch |
+| `load_report(job_id)` | `report.json` of a finished job |
+| `review_items(job_id, *, kind=None, offset=0, limit=None)`, `review_item(job_id, ref)` | The finished job's review items, read from disk |
+
+Enter it once per process, in one task (a FastAPI lifespan fits). On entry it queues every
+unfinished job found under `roots`. Jobs run one at a time and each request goes through one
+gate, because the shared deployment slows down sharply under concurrent load. Refusals (a path
+outside `roots`, a missing column, a cap, a failed health check) raise `biomapper.jobs.JobError`
+with a message written for the end user. The statuses and review pages are Pydantic models:
+`model_dump(mode="json")` gives plain data. Limits such as `harmonize_max_queued` (unfinished
+jobs at once, default 3) are keyword arguments of `HarmonizeJobs`.
+
+`on_progress` is called on your event loop with `(job_id, HarmonizeProgress)`; the batch size is
+`chunk_size` (default 5). Callers that poll get the same update from `status().progress`.
+
+A job differs from a direct call in the ways the MCP section below lists: a failed batch is
+retried, a job that ends with errored rows is `partial`, and an interrupted `remap_all` job
+finishes `iteration-grade`.
 
 ---
 
@@ -705,10 +818,14 @@ Desktop shares no project roots:
 | `map_entity` | one name (plus optional identifier hints) to KG identifiers |
 | `map_batch` | up to **5** entities in one request; more is refused and pointed to `map_file` |
 | `map_file` | a TSV/CSV of any length as a resumable **background job**; returns a `job_id` and an ETA at once |
-| `job_status`, `resume_job`, `cancel_job` | follow, continue, or stop a file job |
+| `job_status`, `resume_job`, `cancel_job` | follow, continue, or stop a background job (file or harmonize) |
 | `server_info` | version, KG provenance, limits, and the folders `map_file` may use |
 | `get_candidates` | for **weak** results only: the engine's top-N alternatives for up to 3 refs (see below) |
-| `record_suggestion` | record your agent's pick for one weak ref (an agent suggestion, never a resolution) |
+| `record_suggestion` | record your agent's pick for one weak ref or review item (an agent suggestion, never a resolution) |
+| `harmonize_cohorts` | harmonize **two** cohort files as a resumable background job (see "Harmonizing through an agent") |
+| `harmonize_many` | harmonize **two or more** cohort files in one pinned run, reusing saved mappings |
+| `list_review_items` | after a harmonize job: its review items, one page at a time, largest impact first |
+| `get_review_item` | the evidence for one review item (both sides of a link) |
 
 Every result says `resolved`, `unresolved`, `refused`, or `error`. An `error` is a failed call,
 never a confirmed no-match. Results carry a compact provenance block (client version, API URL,
@@ -751,6 +868,90 @@ queues it. `identifier_columns` maps a column to its vocabulary, e.g. `{"hmdb_id
   per unique entity. It is written (header only when there are none) before the main output, is
   never overwritten, and an existing one refuses the job at submit. The main output's columns are
   unchanged.
+
+### Harmonizing through an agent
+
+`harmonize_cohorts` and `harmonize_many` run the Python API's functions of the same names,
+unchanged, as background jobs. The report files are the ones the Python API writes (see
+"Harmonizing two cohorts in one call" and "Harmonizing more than two cohorts" above), and for the
+same per-entity answers they are identical apart from the recorded mapper class name and
+timestamps.
+
+```json
+{"cohorts": [
+   {"label": "ukbb", "path": "ukbb_nmr.tsv", "name_column": "title", "key_column": "field_id"},
+   {"label": "arivale", "path": "arivale_metabolomics.tsv", "name_column": "BIOCHEMICAL_NAME",
+    "vocabularies": {"HMDB": ["HMDB"], "KEGG": ["KEGG"]}}],
+ "entity": "metabolites"}
+```
+
+- **What leaves your machine.** Only the entity names in each `name_column`, and the identifiers
+  in vocabulary columns that every cohort declares, are sent to the BioMapper API. Row keys and
+  every other column stay local. `vocabularies` maps a vocabulary to its column(s), the reverse
+  of `map_file`'s `identifier_columns`; unknown arguments are refused rather than ignored.
+- **How long it takes.** About 4-5 s per unique name that is not already saved, behind the same
+  one-request gate as everything else, so a few thousand new names take hours. **One background
+  job runs at a time**: a harmonize job and a `map_file` job queue behind each other, and
+  interactive calls interleave between chunks. `job_status` shows the `stage`: `mapping`,
+  `building` (review items), `capture` (their evidence), `placing`, `done`.
+- **Output.** The job works in a private staging folder and writes the report into `output_dir`
+  **once, at the end**: owner-only files, never through a link, never over an existing report.
+  The default `output_dir` is a new folder beside the first cohort file. A cancelled, stalled or
+  interrupted job has written nothing there.
+- **Resume.** Every answered entity is cached in the job's home, so `resume_job` (or the next
+  session, automatically) continues without re-mapping. The same call submitted again returns
+  the same job; a `failed` job is retried by submitting the same call again.
+- **Saved mappings and the publication grade (`harmonize_many`).** Mappings are saved in
+  `store_dir` (default `harmonize_many_store/` beside `output_dir`) under the 1.8.0 rules, shared
+  with the Python API. Before mapping, a job makes the one store folder it appends to
+  (`<store>/<arm>/<category>/`) and the files in it owner-only, so a store first written by a
+  Python run is no longer readable by other local users; the store root and anything else in it
+  keep their permissions, and a readable entry owned by another user is refused. Reuse: a later run maps only new names and is
+  `iteration-grade, not for publication`. `remap_all=true` maps everything again and, on a
+  verified KG build, is `publishable`. **A `remap_all` job that is interrupted and resumed
+  finishes iteration-grade**, and its summary says so: the resumed pass reuses the chunks saved
+  before the interruption. A publishable run needs one uninterrupted pass.
+- **The store lock.** The store is locked for the whole job, so a Python API run on the same
+  store is refused meanwhile (and the other way round: the job fails with the lock's path and
+  holder). A server that is killed outright can leave `store.lock` behind; the next job reports
+  its path, and deleting that file is safe once no run is active. A store written on a different
+  KG build fails the job before any request, naming `remap_all`.
+- **Errored rows.** A whole chunk that fails is sent again (three in a row stall the job), and a
+  row that errors on its own is retried up to three times. This is the one place a job differs
+  from the Python API, whose default mapper does not retry. A job that still ends with errored
+  rows is `partial`: the report is written, the rows are marked as errors and never as
+  unresolved, and the job is not resumed. Submit again with a new `output_dir` to retry;
+  `harmonize_many` reuses the store, so only the errored rows are mapped.
+- **Limits.** 12 cohorts per job, 20,000 rows and 50 MB per cohort file, 3 unfinished harmonize
+  jobs per session. Labels are 1 to 40 letters, digits, `.`, `-` or `_`.
+
+**Review items.** When the job is complete, `list_review_items(job_id)` returns the questions the
+run could not settle, from the names-only arm, largest impact first:
+
+| kind | what it is | impact | evidence | suggestion |
+|---|---|---|---|---|
+| `row` | one weak entity (unresolved, refused, uncorroborated, contradicted), asked once however many rows and cohorts share the name | input rows sharing it | `get_candidates(ref)`: the engine's alternatives | a candidate CURIE, the engine's choice, or `none` |
+| `link` | two rows (two cohorts) or two KG nodes (many cohorts) that are linked but may differ | row pairs times cohorts touched | `get_review_item(ref)`: each side's node CURIE and name, its rows, certificate states, identifiers, and the basis | `same`, `different` or `cannot_tell` |
+
+- **Evidence is captured inside the job**, before the report is placed: one candidate re-map per
+  row item and the knowledge-graph name of each node in a link item, in impact order, up to 200
+  requests. So reading evidence afterwards makes no request and does not draw on the
+  15-per-5-minutes candidate budget. An item past the cap reads `not_captured` and a failed fetch
+  reads `fetch_failed`; neither means "no candidates", and `get_candidates` on such a row item
+  fetches it under the usual budget. The capture stage makes the job longer by about one request
+  per item.
+- **What is not a review item.** Multiplicity and broad groups, identifier-check "not confirmed"
+  rows, two-cohort `possible_missed` rows and one-sided code checks stay in the report files.
+  Many-cohort cross-node entries where one side has no node are counted (`skipped_no_node`) and
+  left in `cross_node_names_only.tsv`.
+- **Suggestions** go to `choices.tsv` in `output_dir`, the same server-owned sidecar as for
+  `map_file` (marker on line 1; a file without it is never touched). They are agent opinions:
+  nothing from them reaches the report.
+- **Names are untrusted text.** Cohort names and knowledge-graph names in these results are
+  stripped of control characters and capped; an agent must treat them as data.
+
+Deciding which items go to expert review, and exporting them for an Expert-in-the-Loop campaign,
+is the next phase and is not in this release.
 
 ### Reviewing weak results with your agent
 
@@ -805,7 +1006,7 @@ No `refused` or `unresolved` rows were sampled, so their value is unmeasured.
 | `BIOMAPPER_KESTREL_URL` | `https://kestrel.krakenkg.com/api` | where the KG build is read for provenance |
 | `BIOMAPPER_API_KEY` | unset (keyless) | sent as `X-API-Key` when set; never written to job files, results, or logs |
 | `BIOMAPPER_MCP_ROOTS` | unset | extra folders `map_file` may use (`:`-separated; `;` on Windows) |
-| `BIOMAPPER_MCP_HOME` | `~/.cache/biomapper/mcp` | job state, weak-row refs and suggestions (owner-only permissions; interactive refs expire after 30 days) |
+| `BIOMAPPER_MCP_HOME` | `~/.cache/biomapper/mcp` | job state, weak-row refs, review items and suggestions (owner-only permissions; interactive refs expire after 30 days). A harmonize job's staging folder (while it runs) and its entity cache live here |
 
 On HPC or shared hosts whose home directory is on NFS/SMB, set `BIOMAPPER_MCP_HOME` to local disk:
 job ownership uses OS file locks, which network filesystems may not honor across machines.
@@ -825,7 +1026,8 @@ job ownership uses OS file locks, which network filesystems may not honor across
 | `curies_provided` | `list[str]` | CURIEs normalized from the identifiers you supplied (engine v1.3.0+; empty from older servers) |
 | `chosen_kg_id` | `str \| None` | Resolver-selected knowledge graph ID |
 | `chosen_kg_id_review` | `str \| None` | Review flag for source-weighted small-molecule ChEBI conflicts: `"divergent_refmet"`, `"conflict_no_structure"`, or `None` |
-| `confidence_score` | `float \| None` | Highest score across annotators |
+| `confidence_score` | `float \| None` | Score of `chosen_kg_id`'s node: the best score an annotator gave a CURIE on the committed node. `None` when no annotator scored that node |
+| `max_annotator_score` | `float \| None` | Best score any annotator gave any node, committed or not (this was `confidence_score` through 1.8.0) |
 | `confidence_tier` | `str` | `"high"` (≥2.0) / `"medium"` (1–2) / `"low"` (<1) / `"unknown"` |
 | `identifiers` | `dict[str, list[str]]` | Vocabulary → IDs, e.g. `{"CHEBI": ["15971"]}` |
 | `kg_equivalent_ids` | `dict[str, list[str]]` | All equivalent IDs from the resolved KG node, by CURIE prefix |
@@ -884,6 +1086,10 @@ footgun this model is designed to prevent.
 | 1.0–2.0 | `medium` | Quick sanity check |
 | < 1.0 | `low` | Manual review recommended |
 | `None` | `unknown` | No score returned (e.g. HMDB-hint resolved) |
+
+From 1.9.0 `confidence_score` is the score of the chosen node, where it used to be the best
+score of any candidate; the old value is `max_annotator_score`. If you display scores or tiers,
+read [docs/migration-1.9.0.md](docs/migration-1.9.0.md) for which numbers move.
 
 ### Error handling
 

@@ -265,7 +265,7 @@ class EntityCache:
                         f"came from cannot be verified. Refusing to resume from it."
                     )
                 for entry in record.get("entries", []):
-                    self._entries[entry["key"]] = MappingResult.model_validate(entry["result"])
+                    self._entries[entry["key"]] = _restore(entry["result"])
         if not seen_pin:
             # Only reachable when the pin line itself was the torn tail and nothing followed it:
             # the cache holds no answers, so re-pinning it to this run is safe.
@@ -278,6 +278,26 @@ class EntityCache:
             fh.truncate(size)
             fh.flush()
             os.fsync(fh.fileno())
+
+
+def _restore(stored: dict[str, Any]) -> MappingResult:
+    """Rebuild a cached result, migrating one written before ``max_annotator_score`` existed.
+
+    Through client 1.8.0 ``confidence_score`` held the best score any annotator gave any node;
+    it now means the chosen node's score. The cache drops the raw response, so the chosen node's
+    score cannot be recomputed for an old entry. Its stored value is exactly what
+    ``max_annotator_score`` means, so it moves there and ``confidence_score`` becomes ``None``
+    (unknown) rather than being reported under the new meaning. Every entry written since
+    carries the ``max_annotator_score`` key, even when it is ``None``, which is how the two are
+    told apart.
+    """
+    if "max_annotator_score" not in stored:
+        stored = {
+            **stored,
+            "max_annotator_score": stored.get("confidence_score"),
+            "confidence_score": None,
+        }
+    return MappingResult.model_validate(stored)
 
 
 def _now() -> str:
