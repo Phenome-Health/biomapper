@@ -43,7 +43,11 @@ Quick start::
 
 from biomapper._version import resolve_version as _resolve_version
 from biomapper.client import BioMapperClient
-from biomapper.cohorts import CohortHarmonizationReport, harmonize_cohorts
+from biomapper.cohorts import (
+    CohortHarmonizationReport,
+    HarmonizeProgress,
+    harmonize_cohorts,
+)
 from biomapper.dataset import map_dataset_file_sync
 from biomapper.exceptions import (
     BioMapperAuthError,
@@ -103,6 +107,9 @@ __all__ = [
     # Two or more cohorts in one pinned run: node-anchored groups plus review queues
     "harmonize_many",
     "ManyCohortReport",
+    # Structured progress for both (on_progress=). Resumable background jobs for an asyncio
+    # application live in biomapper.jobs (HarmonizeJobs), imported on demand.
+    "HarmonizeProgress",
     # Models
     "MappingResult",
     "MappingSummary",

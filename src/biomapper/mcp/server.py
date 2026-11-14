@@ -302,20 +302,7 @@ def _load_link(
 
 
 def _suggestion_of(state: AppState) -> Callable[[rev.ReviewEntry], str | None]:
-    store = judg.SuggestionStore(state.refs, wall_clock=state.config.wall_clock)
-
-    def current(entry: rev.ReviewEntry) -> str | None:
-        if entry.kind == "link":
-            link = store.current_link(entry.ref)
-            return link.choice if link is not None else None
-        for ref in (entry.superseding_ref, entry.ref):
-            if ref:
-                row = store.current(ref)
-                if row is not None:
-                    return row.choice
-        return None
-
-    return current
+    return judg.suggestion_lookup(state.refs, wall_clock=state.config.wall_clock)
 
 
 def _captured(state: AppState, record: RefRecord, n: int) -> cands.RefCandidates | None:

@@ -17,7 +17,7 @@ from __future__ import annotations
 import secrets
 import time
 from collections.abc import Callable
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -345,3 +345,28 @@ class SuggestionStore:
             ]))
         rows.sort(key=lambda r: (r[0], str(r[1][2])))
         return [r for _, r in rows]
+
+
+def suggestion_lookup(
+    refs: RefStore, *, wall_clock: Callable[[], float] = time.time
+) -> Callable[[Any], str | None]:
+    """``entry -> its current suggestion`` for a harmonize job's review entries, or ``None``.
+
+    Shared by the MCP tools and :mod:`biomapper.jobs`, so both list the same suggestion for an
+    item. A link entry has its own record; a row entry is looked up under its superseding
+    reference first, then its own.
+    """
+    store = SuggestionStore(refs, wall_clock=wall_clock)
+
+    def current(entry: Any) -> str | None:  # noqa: ANN401 — a review_entries.ReviewEntry
+        if entry.kind == "link":
+            link = store.current_link(entry.ref)
+            return link.choice if link is not None else None
+        for ref in (entry.superseding_ref, entry.ref):
+            if ref:
+                row = store.current(ref)
+                if row is not None:
+                    return row.choice
+        return None
+
+    return current

@@ -31,6 +31,7 @@ from collections import Counter, defaultdict
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from itertools import combinations
+from typing import Any
 
 from biomapper.harmonize.curies import curie_set, is_structure_curie
 from biomapper.harmonize.linking import harmonize
@@ -78,6 +79,11 @@ class RowRef:
     broad: bool
     error: str | None = None
 
+    def to_dict(self) -> dict[str, Any]:
+        return {"cohort": self.cohort, "key": self.key, "name": self.name,
+                "bucket": self.bucket, "node": self.node, "chosen_kg_id": self.chosen_kg_id,
+                "broad": self.broad, "error": self.error}
+
 
 @dataclass(frozen=True)
 class GroupMember:
@@ -85,6 +91,9 @@ class GroupMember:
     key: str
     name: str
     broad: bool
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"cohort": self.cohort, "key": self.key, "name": self.name, "broad": self.broad}
 
 
 @dataclass(frozen=True)
@@ -114,6 +123,19 @@ class NodeGroup:
     def clean(self) -> bool:
         return not self.multiplicity and not self.broad
 
+    def to_dict(self) -> dict[str, Any]:
+        """The group as plain JSON-safe data, with its flags and per-cohort row counts."""
+        return {
+            "node": self.node,
+            "cohorts": list(self.cohorts),
+            "n_cohorts": len(self.cohorts),
+            "rows_per_cohort": self.rows_per_cohort,
+            "clean": self.clean,
+            "multiplicity": self.multiplicity,
+            "broad": self.broad,
+            "members": [m.to_dict() for m in self.members],
+        }
+
 
 @dataclass(frozen=True)
 class RowPair:
@@ -130,6 +152,12 @@ class RowPair:
     basis: str
     bases: frozenset[str]
 
+    def to_dict(self) -> dict[str, Any]:
+        return {"a_cohort": self.a_cohort, "a_key": self.a_key, "a_name": self.a_name,
+                "a_node": self.a_node, "b_cohort": self.b_cohort, "b_key": self.b_key,
+                "b_name": self.b_name, "b_node": self.b_node, "basis": self.basis,
+                "bases": sorted(self.bases)}
+
 
 @dataclass(frozen=True)
 class CrossNodeEntry:
@@ -141,6 +169,10 @@ class CrossNodeEntry:
     cohorts: tuple[str, ...]
     n_row_pairs: int
 
+    def to_dict(self) -> dict[str, Any]:
+        return {"node_a": self.node_a, "node_b": self.node_b, "bases": sorted(self.bases),
+                "cohorts": list(self.cohorts), "n_row_pairs": self.n_row_pairs}
+
 
 @dataclass(frozen=True)
 class Withheld:
@@ -150,6 +182,10 @@ class Withheld:
     a_key: str
     b_cohort: str
     b_key: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"a_cohort": self.a_cohort, "a_key": self.a_key, "b_cohort": self.b_cohort,
+                "b_key": self.b_key}
 
 
 @dataclass(frozen=True)
@@ -174,6 +210,12 @@ class PairCounts:
             self.same_node_row_pairs == self.same_node_links
             and self.same_node_row_pairs + self.cross_node_link_pairs == self.harmonize_links
         )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"a": self.a, "b": self.b, "overlap_groups": self.overlap_groups,
+                "same_node_row_pairs": self.same_node_row_pairs,
+                "cross_node_link_pairs": self.cross_node_link_pairs,
+                "harmonize_links": self.harmonize_links, "reconciles": self.reconciles}
 
 
 @dataclass(frozen=True)
@@ -211,6 +253,30 @@ class NwayResult:
     @property
     def flagged_groups(self) -> tuple[NodeGroup, ...]:
         return tuple(g for g in self.groups if not g.clean)
+
+    def to_dict(self) -> dict[str, Any]:
+        """The grouping as plain JSON-safe data.
+
+        ``rows`` holds every input row with its bucket; ``groups`` every node group (filter on
+        ``clean`` for the flagged ones); ``cross_node`` the review queue of links between rows on
+        different nodes; ``withheld`` the short casefold-only name pairs that were not linked.
+        ``cross_node_pairs`` is the row-pair drill-down, or ``None`` when it was streamed to a
+        file instead of held in memory. Keys are stable: new ones may be added, existing ones
+        are not renamed or removed.
+        """
+        return {
+            "labels": list(self.labels),
+            "link_by_name": self.link_by_name,
+            "counts_by_cohort": self.counts_by_cohort(),
+            "rows": [r.to_dict() for r in self.rows],
+            "groups": [g.to_dict() for g in self.groups],
+            "cross_node": [e.to_dict() for e in self.cross_node],
+            "cross_node_pairs": (
+                [p.to_dict() for p in self.drilldown] if self.drilldown is not None else None
+            ),
+            "withheld": [w.to_dict() for w in self.withheld],
+            "pair_counts": [p.to_dict() for p in self.pair_counts],
+        }
 
 
 def is_broad(result: MappingResult) -> bool:

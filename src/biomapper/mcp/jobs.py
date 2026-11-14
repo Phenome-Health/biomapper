@@ -40,6 +40,7 @@ import shutil
 import socket
 import sys
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import IO, Any, Literal, NoReturn
@@ -213,6 +214,15 @@ class HarmonizeStatus(JobStatusBase):
         "only), warnings. The full report is in output_dir.",
     )
     review_items: ReviewCounts | None = None
+    # 1.9.0. Absent until the first batch, so a queued job serializes without it.
+    progress: dict[str, Any] | None = Field(
+        default=None,
+        exclude_if=lambda v: v is None,
+        description="The latest mapping progress: function, arm (names_only, identifier, "
+        "review), cohort (a label for harmonize_cohorts; null for harmonize_many, which maps "
+        "each distinct entity once for all cohorts), cohorts, entities_done, entities_total. "
+        "The counts are for that arm (and cohort), not the whole job.",
+    )
 
 
 class JobStatusList(BaseModel):
@@ -494,6 +504,8 @@ class HarmonizeJob:
     placed: dict[str, str] = field(default_factory=dict)
     summary: dict[str, Any] | None = None
     review: dict[str, int] | None = None
+    # The latest HarmonizeProgress.to_dict() of the current or last mapping run.
+    progress: dict[str, Any] | None = None
 
     @property
     def output(self) -> Path:
@@ -663,6 +675,9 @@ class JobManager:
         self._busy_job: str | None = None
         self._run_roots: dict[str, list[Path]] = {}
         self.shutting_down = False
+        # (job_id, HarmonizeProgress) after every batch of a harmonize job, on the event loop.
+        # Set by an embedding application (biomapper.jobs); the MCP server leaves it unset.
+        self.on_progress: Callable[[str, Any], None] | None = None
         from biomapper.mcp.harmonize_jobs import HarmonizeRunner  # imports this module
 
         self.harmonize = HarmonizeRunner(self)
