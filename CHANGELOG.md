@@ -5,6 +5,8 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.9.0] - 2026-11-13
+
 ### Changed
 
 - **`MappingResult.confidence_score` is now the score of the committed node.** It was the highest
