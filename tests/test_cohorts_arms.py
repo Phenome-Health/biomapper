@@ -170,6 +170,7 @@ def test_batched_api_mapper_batches_and_forwards_settings(monkeypatch) -> None:
         return [mr(r["name"]) for r in records]
 
     monkeypatch.setattr("biomapper.cohorts.map_entities", fake_map_entities)
+    monkeypatch.setattr("biomapper.cohorts.time.sleep", lambda s: None)
     mapper = BatchedApiMapper(batch_size=2, timeout=123.0, base_url="https://x.invalid/api")
     out = mapper(
         [{"name": n} for n in "abcde"], entity_type="biolink:Gene", annotation_mode="none"
@@ -204,6 +205,7 @@ def test_default_mapper_uses_the_batching_and_timeout_settings(tmp_path, monkeyp
         return [mr(r["name"]) for r in records]
 
     monkeypatch.setattr("biomapper.cohorts.map_entities", fake_map_entities)
+    monkeypatch.setattr("biomapper.cohorts.time.sleep", lambda s: None)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         report = harmonize_cohorts(
@@ -239,3 +241,96 @@ def test_a_mapper_that_reuses_one_result_object_still_keys_each_row(tmp_path) ->
     )
     pairs = sorted((lk.a_key, lk.b_key) for lk in report.names_only.links)
     assert pairs == [("0|Glucose", "0|Glucose"), ("1|Glucose", "0|Glucose")]
+
+
+def test_batched_api_mapper_paces_batches_across_calls(monkeypatch) -> None:
+    clock = {"t": 0.0}
+    starts: list[float] = []
+
+    def fake_map_entities(records, **kwargs):
+        starts.append(clock["t"])
+        clock["t"] += 0.2  # each request takes 0.2 s
+        return [mr(r["name"]) for r in records]
+
+    monkeypatch.setattr("biomapper.cohorts.map_entities", fake_map_entities)
+    monkeypatch.setattr("biomapper.cohorts.time.monotonic", lambda: clock["t"])
+    monkeypatch.setattr("biomapper.cohorts.time.sleep",
+                        lambda s: clock.__setitem__("t", clock["t"] + s))
+    mapper = BatchedApiMapper(batch_size=1, min_interval_s=1.1)
+    mapper([{"name": "a"}, {"name": "b"}], entity_type="biolink:Gene", annotation_mode="none")
+    mapper([{"name": "c"}], entity_type="biolink:Gene", annotation_mode="none")
+    gaps = [b - a for a, b in zip(starts, starts[1:], strict=False)]
+    assert gaps == pytest.approx([1.1, 1.1])
+
+
+def test_batched_api_mapper_backs_off_and_retries_a_rate_limited_batch(monkeypatch) -> None:
+    sleeps: list[float] = []
+    answers = iter(["429", "429", None])
+
+    def fake_map_entities(records, **kwargs):
+        err = next(answers)
+        if err:
+            return [MappingResult(query_name=r["name"], error="Rate limit exceeded (HTTP 429).")
+                    for r in records]
+        return [mr(r["name"]) for r in records]
+
+    monkeypatch.setattr("biomapper.cohorts.map_entities", fake_map_entities)
+    monkeypatch.setattr("biomapper.cohorts.time.sleep", sleeps.append)
+    mapper = BatchedApiMapper(batch_size=2, min_interval_s=0, rate_limit_backoff_s=(5, 10))
+    out = mapper([{"name": "a"}, {"name": "b"}], entity_type="biolink:Gene",
+                 annotation_mode="none")
+    assert [r.error for r in out] == [None, None]
+    assert sleeps == [5, 10] and mapper.rate_limit_retries == 2
+
+
+def test_batched_api_mapper_returns_errors_when_backoff_is_exhausted(monkeypatch) -> None:
+    calls = []
+
+    def always_429(records, **kwargs):
+        calls.append(1)
+        return [MappingResult(query_name=r["name"], error="Rate limit exceeded (HTTP 429).")
+                for r in records]
+
+    monkeypatch.setattr("biomapper.cohorts.map_entities", always_429)
+    monkeypatch.setattr("biomapper.cohorts.time.sleep", lambda s: None)
+    mapper = BatchedApiMapper(batch_size=5, min_interval_s=0, rate_limit_backoff_s=(1, 1))
+    out = mapper([{"name": "a"}], entity_type="biolink:Gene", annotation_mode="none")
+    assert len(calls) == 3 and "429" in out[0].error
+
+
+def test_batched_api_mapper_does_not_retry_a_server_error(monkeypatch) -> None:
+    calls = []
+
+    def server_error(records, **kwargs):
+        calls.append(1)
+        return [MappingResult(query_name=r["name"], error="Server error (HTTP 502).")
+                for r in records]
+
+    monkeypatch.setattr("biomapper.cohorts.map_entities", server_error)
+    monkeypatch.setattr("biomapper.cohorts.time.sleep", lambda s: None)
+    out = BatchedApiMapper(batch_size=5, min_interval_s=0)(
+        [{"name": "a"}], entity_type="biolink:Gene", annotation_mode="none")
+    assert len(calls) == 1 and out[0].error
+
+
+def test_batched_api_mapper_rejects_negative_waits() -> None:
+    with pytest.raises(ValueError):
+        BatchedApiMapper(min_interval_s=-1)
+    with pytest.raises(ValueError):
+        BatchedApiMapper(rate_limit_backoff_s=(1, -1))
+
+
+def test_batched_api_mapper_does_not_retry_a_server_error_that_mentions_429(monkeypatch) -> None:
+    calls = []
+
+    def bad_gateway(records, **kwargs):
+        calls.append(1)
+        return [MappingResult(query_name=r["name"],
+                              error="Server error (HTTP 502): upstream returned 429")
+                for r in records]
+
+    monkeypatch.setattr("biomapper.cohorts.map_entities", bad_gateway)
+    monkeypatch.setattr("biomapper.cohorts.time.sleep", lambda s: None)
+    out = BatchedApiMapper(batch_size=5, min_interval_s=0)(
+        [{"name": "a"}], entity_type="biolink:Gene", annotation_mode="none")
+    assert len(calls) == 1 and "502" in out[0].error
