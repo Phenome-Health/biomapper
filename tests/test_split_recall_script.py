@@ -147,3 +147,20 @@ def test_main_parses_arguments(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(gate, "run", lambda **kw: seen.update(kw))
     assert gate.main(["--necs", str(necs), "--necs-sha256", sha, "--arivale", str(arivale)]) == 0
     assert seen["remap_all"] is True and seen["necs_sha256"] == sha
+
+
+def test_a_truncated_legacy_key_is_screened_on_the_standard_key() -> None:
+    """MOESM5 ships a truncated vendor form in ``INCHIKEY`` for every row; the standard
+    ``inchi_key`` column must carry the screen, or no row is certifiable."""
+    base = {"name": "glucose", "hmdb": "HMDB0000122"}
+    rows = [
+        {**base, "inchikey": "WQZGKKKJIJFFOK-GASJEMHNSA", "inchikey_standard": IK},  # kept
+        {**base, "inchikey": "", "inchikey_standard": IK},                          # kept
+        {**base, "inchikey": IK, "inchikey_standard": ""},                          # legacy only
+        {**base, "inchikey": "QNAYBMKLOCPYGJ-UHFFFAOYAK", "inchikey_standard": IK},  # clash
+        {**base, "inchikey": "WQZGKKKJIJFFOK-GASJEMHNSA", "inchikey_standard": ""},  # unusable
+    ]
+    kept, reasons = gate.screen_necs(rows)
+    assert len(kept) == 3
+    assert reasons == {"InChIKey vintages disagree (first block)": 1,
+                       "missing or malformed gold InChIKey": 1}

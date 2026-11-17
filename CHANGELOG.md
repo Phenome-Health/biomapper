@@ -5,6 +5,15 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **`scripts/harmonize_many_split_recall.py` certifies rows again on the published NECS
+  workbook.** It screened on the legacy `INCHIKEY` column, which in MOESM5 is a truncated vendor
+  form for every row, so 0 of 1,495 rows were certifiable and the answer key was empty. The screen
+  now uses the standard `inchi_key` when it is well formed (the legacy key otherwise) and compares
+  vintages on the 14-letter first block. On MOESM5 this certifies 738 rows and 489 true pairs.
+  The screening rule id moves to `.../v2`.
+
 ## [1.9.0] - 2026-11-13
 
 ### Changed
