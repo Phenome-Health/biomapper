@@ -318,3 +318,19 @@ def test_batched_api_mapper_rejects_negative_waits() -> None:
         BatchedApiMapper(min_interval_s=-1)
     with pytest.raises(ValueError):
         BatchedApiMapper(rate_limit_backoff_s=(1, -1))
+
+
+def test_batched_api_mapper_does_not_retry_a_server_error_that_mentions_429(monkeypatch) -> None:
+    calls = []
+
+    def bad_gateway(records, **kwargs):
+        calls.append(1)
+        return [MappingResult(query_name=r["name"],
+                              error="Server error (HTTP 502): upstream returned 429")
+                for r in records]
+
+    monkeypatch.setattr("biomapper.cohorts.map_entities", bad_gateway)
+    monkeypatch.setattr("biomapper.cohorts.time.sleep", lambda s: None)
+    out = BatchedApiMapper(batch_size=5, min_interval_s=0)(
+        [{"name": "a"}], entity_type="biolink:Gene", annotation_mode="none")
+    assert len(calls) == 1 and "502" in out[0].error

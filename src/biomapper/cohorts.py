@@ -602,9 +602,13 @@ class BatchedApiMapper:
         return out
 
 
+_RATE_LIMIT_ERROR = "Rate limit exceeded (HTTP 429)."  # the client's fixed 429 message
+
+
 def _rate_limited(result: MappingResult) -> bool:
-    """True for a row errored by an HTTP 429 (the client's error text names the status)."""
-    return bool(result.error) and "429" in str(result.error)
+    """True for a row errored by an HTTP 429. Matches the client's fixed message exactly, so a
+    5xx whose response body happens to mention 429 is not mistaken for a rate limit."""
+    return str(result.error or "") == _RATE_LIMIT_ERROR
 
 
 def _call_mapper(
