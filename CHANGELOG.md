@@ -5,6 +5,16 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **`harmonize_many()` / `harmonize_cohorts()` no longer burst past the shared deployment's rate
+  limit.** The default `BatchedApiMapper` sent its batches back to back and slept after a 429 only
+  when the server sent `Retry-After`, which nginx does not, so a live run hit up to about 6
+  requests/s and turned 37 batches into errored rows. Batches now start at least 1.1 s apart
+  (`min_interval_s`), and a batch whose every row is rate limited is retried after 5, 10, 20, 40,
+  60 and 60 s (`rate_limit_backoff_s`) before its errors are kept. A 5xx or timeout is still not
+  retried here and stays an error, never a no-match.
+
 ## [1.9.0] - 2026-11-13
 
 ### Changed
