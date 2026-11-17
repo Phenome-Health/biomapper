@@ -36,6 +36,7 @@ import json
 import os
 import re
 import sys
+import time
 import warnings
 from collections import Counter
 from collections.abc import Callable, Iterable, Mapping, Sequence
@@ -101,6 +102,10 @@ REVIEW_STATUSES: tuple[str, ...] = (
 
 DEFAULT_BATCH_SIZE = 10  # larger batches slow the shared deployment down sharply
 DEFAULT_TIMEOUT_S = 300.0
+# The shared deployment allows about 1 request/s. nginx answers a burst with 429 and no
+# Retry-After, so the default mapper paces itself and backs off on its own.
+DEFAULT_MIN_INTERVAL_S = 1.1
+DEFAULT_RATE_LIMIT_BACKOFF_S: tuple[float, ...] = (5.0, 10.0, 20.0, 40.0, 60.0, 60.0)
 DEFAULT_RUNS_DIR = "biomapper_runs"
 API_HEALTH_TIMEOUT_S = 15.0
 
@@ -514,6 +519,12 @@ class BatchedApiMapper:
 
     Each batch goes through :func:`biomapper.map_entities`, so a failed chunk becomes per-row
     error results rather than an exception, and an auth failure still aborts.
+
+    Batches start at least ``min_interval_s`` apart, across calls on the same instance. A batch
+    whose every row came back rate limited (HTTP 429) is retried after each wait in
+    ``rate_limit_backoff_s``; if it is still rate limited after the last one, its errored rows
+    are returned as they are. Any other failure (5xx, timeout) is not retried here, so it stays
+    an error and never becomes a no-match.
     """
 
     def __init__(
@@ -524,14 +535,52 @@ class BatchedApiMapper:
         base_url: str | None = None,
         api_key: str | None = None,
         progress: bool = False,
+        min_interval_s: float = DEFAULT_MIN_INTERVAL_S,
+        rate_limit_backoff_s: Sequence[float] = DEFAULT_RATE_LIMIT_BACKOFF_S,
     ) -> None:
         if batch_size < 1:
             raise ValueError(f"batch_size must be at least 1, got {batch_size}")
+        if min_interval_s < 0 or any(w < 0 for w in rate_limit_backoff_s):
+            raise ValueError("min_interval_s and rate_limit_backoff_s must not be negative")
         self.batch_size = batch_size
         self.timeout = timeout
         self.base_url = base_url
         self.api_key = api_key
         self.progress = progress
+        self.min_interval_s = min_interval_s
+        self.rate_limit_backoff_s = tuple(rate_limit_backoff_s)
+        self.rate_limit_retries = 0
+        self._last_start: float | None = None
+
+    def _map_batch(
+        self, batch: list[dict[str, Any]], *, entity_type: str, annotation_mode: str
+    ) -> list[MappingResult]:
+        """One paced batch, retried while every row in it is rate limited."""
+        waits = iter(self.rate_limit_backoff_s)
+        while True:
+            if self._last_start is not None:
+                gap = self.min_interval_s - (time.monotonic() - self._last_start)
+                if gap > 0:
+                    time.sleep(gap)
+            self._last_start = time.monotonic()
+            results = map_entities(
+                batch,
+                api_key=self.api_key,
+                base_url=self.base_url,
+                entity_type=entity_type,
+                annotation_mode=annotation_mode,
+                timeout=self.timeout,
+            )
+            if not (results and all(_rate_limited(r) for r in results)):
+                return results
+            wait = next(waits, None)
+            if wait is None:
+                return results
+            self.rate_limit_retries += 1
+            if self.progress:
+                print(f"  rate limited (HTTP 429); retrying in {wait:g} s", file=sys.stderr,
+                      flush=True)
+            time.sleep(wait)
 
     def __call__(
         self, records: list[dict[str, Any]], *, entity_type: str, annotation_mode: str
@@ -541,14 +590,7 @@ class BatchedApiMapper:
         for start in range(0, total, self.batch_size):
             batch = records[start : start + self.batch_size]
             out.extend(
-                map_entities(
-                    batch,
-                    api_key=self.api_key,
-                    base_url=self.base_url,
-                    entity_type=entity_type,
-                    annotation_mode=annotation_mode,
-                    timeout=self.timeout,
-                )
+                self._map_batch(batch, entity_type=entity_type, annotation_mode=annotation_mode)
             )
             if self.progress:
                 print(
@@ -558,6 +600,15 @@ class BatchedApiMapper:
                     flush=True,
                 )
         return out
+
+
+_RATE_LIMIT_ERROR = "Rate limit exceeded (HTTP 429)."  # the client's fixed 429 message
+
+
+def _rate_limited(result: MappingResult) -> bool:
+    """True for a row errored by an HTTP 429. Matches the client's fixed message exactly, so a
+    5xx whose response body happens to mention 429 is not mistaken for a rate limit."""
+    return str(result.error or "") == _RATE_LIMIT_ERROR
 
 
 def _call_mapper(
