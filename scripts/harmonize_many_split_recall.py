@@ -57,11 +57,12 @@ DEFAULT_ARIVALE = (
     REPO / "notebooks" / "data" / "ukbb_arivale" / "panels"
     / "metabolites_arivale_metabolomics_metadata.tsv"
 )
-SCREENING_RULE = "name+hmdb+wellformed_inchikey+vintage_first_block_agrees/v1"
+SCREENING_RULE = "name+hmdb+wellformed_standard_or_legacy_inchikey+vintage_first_block_agrees/v2"
 KEY_RULE = "necs_gold_hmdb_intersects_arivale_declared_hmdb/v1"
 CLASSES = ("same_group", "cross_node_queue", "neither")
 STRATA = ("name_equal", "different_name")
 _INCHIKEY = re.compile(r"^[A-Z]{14}-[A-Z]{10}-[A-Z]$")
+_FIRST_BLOCK = re.compile(r"^[A-Z]{14}(?:-|$)")
 _SPLIT = re.compile(r"[,;|\s]+")
 
 
@@ -131,20 +132,26 @@ def load_arivale(path: Path) -> list[dict[str, str]]:
 
 
 def screen_necs(rows: Sequence[dict[str, str]]) -> tuple[list[dict[str, str]], Counter[str]]:
-    """Keep certifiable NECS rows; count the rest by reason."""
+    """Keep certifiable NECS rows; count the rest by reason.
+
+    The gold key is the standard InChIKey (``inchi_key``) when it is well formed, else the
+    legacy ``INCHIKEY`` column. In the published MOESM5 workbook the legacy column is a
+    truncated vendor form for every row (``ATHGHQPFGPMSJY-UHFFFAOYAK``), so screening on it
+    alone certified nothing. The vintage check compares the 14-letter first blocks, which the
+    truncated form still carries.
+    """
     kept: list[dict[str, str]] = []
     reasons: Counter[str] = Counter()
     for r in rows:
-        key = r["inchikey"]
+        std, legacy = r.get("inchikey_standard", ""), r.get("inchikey", "")
+        key = std if _INCHIKEY.match(std) else legacy
         if not r["name"]:
             reasons["blank name"] += 1
         elif not _hmdb_set(r["hmdb"]):
             reasons["no gold HMDB"] += 1
         elif not _INCHIKEY.match(key):
             reasons["missing or malformed gold InChIKey"] += 1
-        elif r.get("inchikey_standard") and _INCHIKEY.match(r["inchikey_standard"]) and (
-            r["inchikey_standard"].split("-")[0] != key.split("-")[0]
-        ):
+        elif _FIRST_BLOCK.match(std) and _FIRST_BLOCK.match(legacy) and std[:14] != legacy[:14]:
             reasons["InChIKey vintages disagree (first block)"] += 1
         else:
             kept.append(r)
